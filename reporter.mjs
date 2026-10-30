@@ -57,23 +57,41 @@
  * sends no paths, your sessions get no such note, and AgentMingo names your sessions in no teammate's notes: not in
  * their note about other sessions, and not when someone else's thread works on the same task.
  *
- * Answering permission prompts from AgentMingo is off unless you turn it on here, in your own terminal (`approvals on`,
- * which asks you to type yes). It won't turn on from your coding agent's own commands, and AgentMingo's website and
- * servers can't turn it on; an update of this reporter can change anything it does, as it always could (turn updates
- * off with `auto-update off`). Once it's on, when a session started since stops on a permission prompt, Claude Code's
- * prompt stays on screen as always, and the hook also opens the prompt on the thread's page in AgentMingo and waits up
- * to the time you chose (an hour unless you say otherwise) for your answer there; whichever is answered first counts.
+ * Answering permission prompts and replies from AgentMingo is off unless you turn it on here, in your own terminal: by
+ * running the setup command with its box "Answer prompts and reply to threads from AgentMingo" ticked (it is by default:
+ * install's --approvals, which turns it on only with the command's one-time code from your Sessions page, in a real
+ * terminal, not inside Claude Code's Bash tool, and says so; it refuses otherwise), or with `approvals on`, which asks
+ * you to type yes. Those checks catch a command run by mistake or by your coding agent's Bash tool; a program on your
+ * computer set on faking a terminal could get past them. AgentMingo's website and servers can't turn it on by
+ * themselves: the setup command carries the flag, and you run it
+ * (it already downloads and runs this script); an update of this reporter can change anything it does, as it always
+ * could (turn updates off with `auto-update off`). Once it's on, when a session started since stops on a permission
+ * prompt, Claude Code's prompt stays on screen as always, and the hook also opens the prompt on the thread's page in
+ * AgentMingo and waits up to the time you chose (an hour unless you say otherwise) for your answer there; whichever is
+ * answered first counts.
  * For that prompt it sends the tool's name, a random id, an HMAC that ties an answer to this prompt (made with a key
  * that never leaves this computer), a hash of what it shows, how long it will wait, and for a file change, the file's
  * path in the repository (masked like a title) with how many lines it adds and removes, never the change itself; with
  * --commands, a command, masked. While it waits it asks AgentMingo for an answer every 3 seconds for two minutes, then
  * every 10, and says when it stops waiting. Allow applies to that one call (never an "always allow" rule), and only for
  * a file inside the repository that can't run code or change settings by itself; a command or another tool can only be
- * denied there. It waits only in a thread's main conversation (not a subagent's), not in a headless run, only on
- * Claude Code versions checked with it (none yet: until a release adds some, prompts are only reported, unless you
- * also chose --unchecked), and in a terminal only once Claude Code says the prompt is on screen. When Claude Code stops
- * the hook, it tells AgentMingo it stopped waiting. Someone who controls AgentMingo's servers or database could answer
- * for you. `approvals off` turns it off.
+ * denied there. It waits only in a thread's main conversation (not a subagent's), not in a headless run, not on a
+ * Claude Code version known to misbehave (none so far), and in a terminal only once Claude Code says the prompt is on
+ * screen (within 20 seconds; else it leaves the prompt to the terminal at once): that notice is the guard. Claude Code
+ * doesn't document that a hook can wait while its prompt stays usable, so a release of it could change that; in its VS
+ * Code extension and desktop app, which send no such notice, Claude Code shows its prompt and runs the hook at the same
+ * time. When Claude Code stops the hook, it tells AgentMingo it stopped waiting. Someone who controls AgentMingo's
+ * servers or database could answer for you. `approvals off` turns it off.
+ *
+ * With it on, a thread that finishes its turn and waits for you can also be answered from its page in AgentMingo
+ * (Continue, Yes, No, or up to 1,000 characters of your own): the watcher below listens up to 8 hours after each reply,
+ * and when you send one, it takes it (once: it's claimed on this computer and on AgentMingo) and wakes the thread with
+ * it, introduced as your reply, with what your next message would have carried (the next workflow step, review results).
+ * For that, each report also says replies are on here, and the watcher says when it asks next. Only you can send one,
+ * signed in as yourself in that browser within the last day; someone who gets into your AgentMingo account could send
+ * your threads a reply, and a command a thread then wants to run still needs your terminal (AgentMingo can only deny
+ * commands). A reply is for the turn it answers: typing in the thread first, the thread ending, or the thread going on
+ * without it (woken for something else) cancels it.
  *
  * On a workflow (below), it also sends whether a step Claude reports is done or failed, and what Claude writes when it reports a step (for the plan step, the plan
  * itself, with the repositories it names and whether it needs an end-to-end test, and why; AgentMingo masks the same
@@ -95,12 +113,20 @@
  * the pull request for a session's branch, AgentMingo decides what blocks and what to fix now, and the session gets
  * that list with its next message (asked for just before the message reaches Claude, a second at most, so results
  * that came in after the watcher stopped aren't a message late), or, if it's idle after pushing, is woken with it: a
- * background hook waits up to 18 minutes after each reply (Claude Code stops it at 20, the timeout install gives it),
- * asking every 30 seconds at first, then every minute, then every two; at most 3 automatic rounds per pull request.
- * A merge conflict on that pull request, and each step of the repository's pull request checklist, wake it too,
- * outside those rounds. Waking relies on Claude Code's asyncRewake, and the woken turn runs on your own Claude plan,
- * like any other. `reviews off` stops all of that (a session that follows a workflow is still woken for its next
- * step).
+ * background hook waits up to 18 minutes after each reply for review results, asking every 30 seconds at first, then
+ * every minute, then every two; at most 3 automatic rounds per pull request. In a session that follows a workflow, and
+ * with replies on (above) in any session, it listens up to 8 hours instead (every five minutes after the first half
+ * hour), so a plan approved or a reply sent hours later still wakes it. It stops within seconds of you typing in the
+ * thread or the thread ending (it looks at the thread's state on this computer every 5 seconds, without asking
+ * AgentMingo), and the thread's next reply starts a watcher of its own, which takes over from it.
+ * Claude Code stops the hook at its timeout: install gives it 8 hours and 10 minutes, and this version raises an earlier
+ * install's 20 minutes itself, once, changing only that number in your settings (`status` says whether it did; if it
+ * couldn't, run the setup command again). Sessions already open keep the timeout they started with until you restart
+ * them (Claude Code may say their hooks changed), and the watcher listens within it. A merge conflict on that pull request, and each step of the repository's pull
+ * request checklist, wake it too, outside those rounds; past them, results wait for you to say continue (your next
+ * message, or a reply from the thread's page). Waking relies on Claude Code's asyncRewake, and the woken turn runs on
+ * your own Claude plan, like any other. `reviews off` stops all of that (a session that follows a workflow is still
+ * woken for its next step).
  *
  * Your organization's git habits (on for new organizations; an admin turns them off under Insights in
  * AgentMingo) reach new sessions in its repositories as a note when they start: six git habits (or half of the
@@ -127,7 +153,8 @@
  * MCP server registered for your user (`claude mcp add -s user`, in ~/.claude.json), and ~/.agentmingo (this
  * script, its launcher, queued events, state such as which review results each session was told, where each
  * repository is cloned, and a log). `approvals on` and `approvals off` change one thing there: the PermissionRequest
- * hook's command (--wait) and its timeout (a minute longer than the wait). `uninstall` takes the
+ * hook's command (--wait) and its timeout (a minute longer than the wait). An update to this version from an earlier one
+ * changes one other thing there, once: the watch hook's timeout, raised to 8 hours and 10 minutes. `uninstall` takes the
  * hooks, the rules and the MCP server out and disconnects this computer; it leaves ~/.agentmingo and the copy of
  * your settings for you to delete. With --lean-git, install also adds the lean git rules to ~/.claude/CLAUDE.md, and
  * keeps a copy of that file as it was beside it (CLAUDE.md.agentmingo-backup), when there was one; `lean-git off`
@@ -162,7 +189,7 @@
  * Otherwise it never changes what Claude does: hooks exit 0 (but the watch, which exits 2 when it wakes Claude: that
  * exit code is how Claude Code's asyncRewake takes its note), the only things it prints are those notes
  * (when turned on) and, with answering prompts from AgentMingo turned on here, your answer to a permission prompt
- * from there, and sending happens in a separate background process. Events wait in
+ * from there and your reply to a thread from there, and sending happens in a separate background process. Events wait in
  * ~/.agentmingo/outbox until they're delivered. When AgentMingo doesn't answer, a hook waits a second for it
  * at most (and hooks look nothing up there for the next minute), and the reporter stops asking and sending for a
  * while (30 seconds, doubling up to 10 minutes, or
@@ -172,16 +199,18 @@
  * hour, doubling to a day, or until install runs again.
  *
  * Install keeps the choices made before (titles, sharing, reviews, updating, answering prompts from AgentMingo, where
- * the hooks are), also after the computer was disconnected, unless a flag changes them (no flag turns answering prompts
- * on; --no-approvals turns it off). The setup command carries a one-time code that works for
+ * the hooks are), also after the computer was disconnected, unless a flag changes them (--approvals turns answering
+ * prompts and replies on, only with the setup command's one-time code, run in your own terminal; already on, it changes
+ * nothing; --no-approvals turns it off). The setup command carries a
+ * one-time code that works for
  * 15 minutes, which install trades for this computer's token, so the token never appears in a command line or shell
  * history (--token still works).
  *
  *   node reporter.mjs install --url https://agentmingo.com --org acme      connect this machine (from any
  *                     --code amc_… [--no-titles] [--lean-git]                folder; safe to run again)
  *                     [--share-files|--no-share-files] [--reviews|--no-reviews] [--no-mcp] [--no-auto-update]
- *                     [--no-approvals]
- *   node reporter.mjs status                                                 where things stand (and where to
+ *                     [--approvals|--no-approvals]
+ *   node reporter.mjs status                                                where things stand (and where to
  *                                                                            look when something doesn't work)
  *   node reporter.mjs repos [add [owner/name] | remove <owner/name>]         which repositories report, and adding
  *                     [--org <organization>]                                 one of yours (this folder's) or not
@@ -199,9 +228,10 @@
  *                     [--repos a,b] [--e2e yes|no --e2e-reason "why"]        a plan's decisions, and files to
  *                     [--attach <files or folders>]                          attach (videos, screenshots, reports)
  *   node reporter.mjs auto-update on|off                                     updating itself
- *   node reporter.mjs approvals on [--commands] [--wait 1h] | off | status   answering permission prompts from
- *                     [--unchecked]                                          AgentMingo (on only in your own
- *                                                                            terminal; off unless you turn it on)
+ *   node reporter.mjs approvals on [--commands] [--wait 1h] | off | status   answering permission prompts, and
+ *                                                                            replies, from AgentMingo (on only in
+ *                                                                            your own terminal; off unless you
+ *                                                                            turn it on)
  *   node reporter.mjs mcp                                                    the MCP server (Claude Code runs it)
  *   node reporter.mjs uninstall                                              remove the hooks, and disconnect
  *                                                                            this computer in AgentMingo
@@ -241,7 +271,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "14";
+export const VERSION = "15";
 const SCRIPT = fileURLToPath(import.meta.url);
 
 /** Hooks this reporter installs. PostToolUse is only a heartbeat, so it runs without making Claude wait. */
@@ -267,18 +297,36 @@ export const PEER_NOTE_EVERY_MS = 10 * 60_000;
 const PEERS_FRESH_MS = 30 * 60_000;
 /** After a reply, how long the watcher waits for review results. */
 export const WATCH_FOR_MS = 18 * 60_000;
+/**
+ * After a reply, how long the watcher listens instead in a thread that follows a workflow (a person may approve its plan
+ * hours later) and, with answering prompts and replies from AgentMingo on here, in any thread (its person may reply from
+ * the thread's page hours later). It stops when the person types in the thread or it ends, and the thread's next reply
+ * starts a watcher of its own, which takes over.
+ */
+export const WATCH_LONG_MS = 8 * 3_600_000;
+/**
+ * How often a waiting watcher looks, on this computer only (no request), whether its person typed in the thread, the
+ * thread ended, or a newer watcher took over: any of those ends its wait within this long.
+ */
+export const WATCH_CHECK_MS = 5_000;
 
 /**
  * How long the watcher waits before asking again, `elapsed` after the reply: every 30 seconds for the first three
- * minutes (a quick review bot or CI answers by then), every minute until ten, then every two. Each ask is a request
- * to AgentMingo: a thread left idle with an open pull request asks 17 times in its 18 minutes, not 36.
+ * minutes (a quick review bot or CI answers by then), every minute until ten, every two until thirty, then every five.
+ * Each ask is a request to AgentMingo: a thread left idle with an open pull request asks 17 times in its 18 minutes,
+ * not 36, and one listening for 8 hours about 110 times.
  */
 export function watchEveryMs(elapsed) {
   if (elapsed < 3 * 60_000) return 30_000;
-  return elapsed < 10 * 60_000 ? 60_000 : 120_000;
+  if (elapsed < 10 * 60_000) return 60_000;
+  return elapsed < 30 * 60_000 ? 120_000 : 300_000;
 }
-/** Seconds Claude Code lets the watcher run (it enforces this on hooks that can wake Claude). */
-const WATCH_TIMEOUT_S = 20 * 60;
+/**
+ * Seconds Claude Code lets the watcher run (it enforces this on hooks that can wake Claude): the longest it listens, and
+ * ten minutes more. Install gives the watch hook this; an earlier install's 20 minutes is raised by the update itself
+ * (raiseWatchTimeout), and the watcher never listens past the timeout its hook has (watchHookTimeoutS).
+ */
+export const WATCH_TIMEOUT_S = WATCH_LONG_MS / 1000 + 10 * 60;
 /**
  * The most a hook waits for AgentMingo before Claude gets the message. What a lookup that ran out would have
  * brought (a task's brief, a step that became ready, review results that arrived after the watcher stopped) comes
@@ -1163,8 +1211,13 @@ export function runHook(home, raw, now = Date.now(), flush = true) {
     if (!existsSync(usageFile)) writeJson(usageFile, newUsageState(state.transcript, now));
     // What the transcript should show by now, from the same moment: the messages and tool calls the hooks saw
     // (countingVerdict checks the counts against them).
+    // The messages typed and the ends are counted for the watcher too: either one ends its wait (watchOver).
     if (input.hook_event_name === "UserPromptSubmit") state.prompts = (state.prompts || 0) + 1;
     else if (input.hook_event_name === "PostToolUse") state.toolHooks = (state.toolHooks || 0) + 1;
+    else if (input.hook_event_name === "SessionEnd") state.ends = (state.ends || 0) + 1;
+    // The watch hook's timeout as the session starts: Claude Code may keep the hooks it started with, so a timeout raised
+    // later may not reach this session (runWatch listens within the lower of the two).
+    if (input.hook_event_name === "SessionStart") state.watchTimeoutS = watchHookTimeoutS(config);
     // Claude Code's notice that a permission prompt is on screen (and still unanswered): a hook waiting for an answer
     // from AgentMingo goes on only once it knows the prompt shows (awaitDecision). In a file of its own, so another
     // hook rewriting the thread's state at the same moment can't lose it.
@@ -2385,14 +2438,15 @@ export async function prepareFeedback(home, raw, deps = {}) {
 
 /**
  * Asks AgentMingo what's waiting for a session (review results, and a workflow step when it follows one);
- * with `deliver` / `deliverStep`, records those as told.
+ * with `deliver` / `deliverStep`, records those as told. `more`: with replies on here, `listen` (in how many seconds the
+ * watcher asks again: until then the thread's page offers a reply) or `deliverReply` (the reply it's taking).
  */
-export async function askFeedback(config, session, deliver, deliverStep) {
+export async function askFeedback(config, session, deliver, deliverStep, more = {}) {
   try {
     const res = await fetch(`${config.url.replace(/\/+$/, "")}/api/v1/agent-sessions/feedback`, {
       method: "POST",
       headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json", "user-agent": `agentmingo-reporter/${VERSION}` },
-      body: JSON.stringify({ session, ...(deliver ? { deliver } : {}), ...(deliverStep ? { deliverStep } : {}) }),
+      body: JSON.stringify({ session, ...(deliver ? { deliver } : {}), ...(deliverStep ? { deliverStep } : {}), ...more }),
       signal: AbortSignal.timeout(15_000),
     });
     const body = await res.json().catch(() => null);
@@ -2447,12 +2501,145 @@ function alive(pid) {
   }
 }
 
+/** Whether replies from a thread's page are taken on this computer: they go with answering prompts from AgentMingo. */
+function repliesOn(config) {
+  const a = config && typeof config === "object" ? config.approvals : null;
+  return Boolean(a && typeof a === "object" && typeof a.key === "string" && a.key);
+}
+
+/** One line of a person's name, short: who a reply is from. */
+function replyFrom(name) {
+  const one = typeof name === "string" ? visible(name.replace(/\s+/g, " ").trim()).slice(0, 60) : "";
+  return one || "Your person";
+}
+
 /**
- * After a reply, waits for review results (or the next checklist step) on the session's pull request,
- * or, in a session that follows a workflow, for its next step (a person approving the plan), and
- * returns the note to wake Claude with, or null: nothing to wait for, the automatic rounds are used up,
- * the person sent a new message (it goes with that), another watcher is already waiting, or nothing
- * came in time.
+ * What a thread is woken with for a reply its person sent from its page: their own words, said to be their reply
+ * (AgentMingo's replyNote says the same).
+ */
+export function replyNote(from, text) {
+  return `${from} replied from AgentMingo: ${text}\n\n(This is your person's reply to you, sent from this thread's page in AgentMingo instead of typed here. Go on as you would had they typed it.)`;
+}
+
+/** A reply in AgentMingo's answer, checked: { id, text, from }, or null. Its text as it is, characters that don't show written out. */
+function replyOf(raw) {
+  if (!raw || typeof raw !== "object" || typeof raw.id !== "string" || !raw.id || raw.id.length > 40 || typeof raw.text !== "string") return null;
+  const text = visible(raw.text.slice(0, 4_000)).trim();
+  return text ? { id: raw.id, text, from: replyFrom(raw.from) } : null;
+}
+
+/**
+ * The timeout Claude Code's settings give this reporter's watch hook (in seconds), or null when it can't tell (no settings
+ * named in the config, none there, or no watch hook). The watcher never listens past it: Claude Code would stop it.
+ */
+export function watchHookTimeoutS(config) {
+  const file = config && typeof config.settings === "string" && config.settings ? config.settings : null;
+  if (!file) return null;
+  let settings;
+  try {
+    settings = readSettings(file);
+  } catch {
+    return null;
+  }
+  const groups = settings && settings.hooks && Array.isArray(settings.hooks.Stop) ? settings.hooks.Stop : [];
+  for (const group of groups) {
+    for (const hook of group && Array.isArray(group.hooks) ? group.hooks : []) {
+      if (isReporterHook(hook) && /\swatch\b/.test(hook.command)) return Number.isFinite(hook.timeout) && hook.timeout > 0 ? hook.timeout : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * A reply its person sent from the thread's page (`reply`, in AgentMingo's answer `data`): claimed on this computer (a
+ * file made only if it isn't there, or older than CLAIM_FOR_MS: a watcher stopped between claiming and asking doesn't
+ * block it for good), then taken on AgentMingo, once (its compare-and-set is what makes it once). The note to wake the
+ * thread with: the reply, and what the person's next message would have carried with it, the workflow step it hasn't
+ * been given and the review results waiting (held after the automatic rounds too: "continue" is what sends them on).
+ * Null when it was taken already, or couldn't be: the watcher goes on waiting.
+ */
+async function takeReply(w, reply, data) {
+  const dir = toldDir(w.p, w.sid);
+  mkdirSync(dir, { recursive: true });
+  const claim = join(dir, `reply-${toldName(reply.id)}`);
+  // Handed over already, or being handed over by another watcher.
+  if (!claimOne(claim, Date.now())) return null;
+  const taken = await w.ask(w.conn, w.sid, undefined, undefined, { deliverReply: reply.id });
+  if (!taken.ok || !taken.data || taken.data.replyTaken !== true) {
+    // Not answered: it's still waiting there, so the next ask may take it. Taken already (or gone): never handed over.
+    if (!taken.ok) rmSync(claim, { force: true });
+    return null;
+  }
+  const parts = [replyNote(reply.from, reply.text)];
+  const step = data.following && data.step && typeof data.step.id === "string" && typeof data.step.note === "string" ? data.step : null;
+  if (step && !step.delivered && (readJson(stepFile(w.p, w.sid)) || {}).given !== step.id) {
+    const told = await w.ask(w.conn, w.sid, undefined, step.id);
+    if (told.ok) {
+      saveStep(w.p, w.sid, data, w.now());
+      writeJson(stepFile(w.p, w.sid), { ...readJson(stepFile(w.p, w.sid)), given: step.id });
+      parts.push(withCommand(step.note, w.home));
+    }
+  }
+  if (w.config.reviews && Array.isArray(data.pending) && data.pending.length && typeof data.note === "string" && data.note) {
+    const ids = data.pending.map((i) => i.id);
+    if (claimTold(w.p, w.sid, ids)) {
+      const told = await w.ask(w.conn, w.sid, ids);
+      if (told.ok) {
+        rmSync(feedbackFile(w.p, w.sid), { force: true });
+        parts.push(data.note);
+      } else releaseTold(w.p, w.sid, [...new Set(ids.map(toldName))]);
+    }
+  }
+  return parts.join("\n\n");
+}
+
+/**
+ * The watch hook's timeout this session has, in seconds: the one in Claude Code's settings now, or the one the session
+ * started with when that's lower (Claude Code may keep the hooks a session started with, so a timeout raised since may
+ * not reach it). A session that started before this reporter noted it (`watchTimeoutS` in its state) is taken to have
+ * the timeout from before an update raised it (`watchTimeoutWas`). Null when it can't tell.
+ */
+export function sessionWatchTimeoutS(config, hook) {
+  const now = watchHookTimeoutS(config);
+  const state = hook && typeof hook === "object" ? hook : {};
+  const fromStart = Number.isFinite(state.watchTimeoutS) ? state.watchTimeoutS : !("watchTimeoutS" in state) && config && Number.isFinite(config.watchTimeoutWas) ? config.watchTimeoutWas : null;
+  const known = [now, fromStart].filter((s) => Number.isFinite(s) && s > 0);
+  return known.length ? Math.min(...known) : null;
+}
+
+/**
+ * Whether a watcher's wait is over, from this computer's state alone (no request): its person typed in the thread, or it
+ * ended, since the watcher started (runHook counts both, so a later event, the turn's Stop say, can't hide them), or a
+ * newer watcher took the thread over (the lock names another), or its connection was refused since (another process
+ * heard a 403). `w`: the watcher, as runWatch makes it.
+ */
+function watchOver(w) {
+  const hook = readJson(join(w.p.state, `${w.sid}.hook.json`)) || {};
+  if ((hook.prompts || 0) > w.base.prompts || (hook.ends || 0) > w.base.ends) return true;
+  if ((hook.lastKind === "prompt" || hook.lastKind === "end") && hook.lastSentAt > w.started) return true;
+  if (forbiddenNow(w.p, w.key, w.now())) return true;
+  return (readJson(w.lock) || {}).id !== w.lockId;
+}
+
+/** Waits `ms` in steps of `w.checkMs`, looking at watchOver after each. Whether the wait is over (the watcher stops). */
+async function pauseWatch(w, ms) {
+  let left = ms;
+  while (left > 0) {
+    const step = Math.min(left, w.checkMs);
+    await w.wait(step);
+    left -= step;
+    if (watchOver(w)) return true;
+  }
+  return watchOver(w);
+}
+
+/**
+ * After a reply, waits for review results (or the next checklist step) on the session's pull request, or, in a session
+ * that follows a workflow, for its next step (a person approving the plan), or, with replies on here, for a reply its
+ * person sends from the thread's page, and returns the note to wake Claude with, or null: nothing to wait for, the person
+ * typed in the thread or it ended (looked at every WATCH_CHECK_MS, on this computer), a newer reply's watcher took over,
+ * or nothing came in time. It listens WATCH_FOR_MS, or WATCH_LONG_MS in a thread that follows a workflow or with replies
+ * on (the automatic rounds used up don't end that: its person may say continue), and never past its hook's timeout.
  */
 export async function runWatch(home, raw, deps = {}) {
   // Cursor's own agent would be held up to 20 minutes, or made to follow up again and again: never waited for.
@@ -2461,7 +2648,6 @@ export async function runWatch(home, raw, deps = {}) {
   const ask = deps.ask || askFeedback;
   const wait = deps.sleep || sleep;
   const now = deps.now || Date.now;
-  const forMs = deps.forMs ?? WATCH_FOR_MS;
   const every = (elapsed) => deps.everyMs ?? watchEveryMs(elapsed);
   const config = readJson(p.config);
   if (!config) return null;
@@ -2474,37 +2660,75 @@ export async function runWatch(home, raw, deps = {}) {
   const sid = safeId(input.session_id);
   if (!sid) return null;
   const following = Boolean((readJson(stepFile(p, sid)) || {}).following);
-  if (!config.reviews && !following) return null;
+  const replies = repliesOn(config);
+  if (!config.reviews && !following && !replies) return null;
+  const startHook = readJson(join(p.state, `${sid}.hook.json`)) || {};
+  // Claude Code stops the watcher at its hook's timeout (the one the session started with, when that's lower): a minute
+  // before it, it stops by itself.
+  const timeoutS = "timeoutS" in deps ? deps.timeoutS : sessionWatchTimeoutS(config, startHook);
+  const cap = timeoutS ? timeoutS * 1000 - 60_000 : Infinity;
+  const limitFor = (long) => Math.min(long ? (deps.longMs ?? WATCH_LONG_MS) : (deps.forMs ?? WATCH_FOR_MS), cap);
+  let long = following || replies;
   // Only a thread that reports waits for anything, and not while its connection is refused (a 403: hours, not minutes).
   const route = sessionRoute(p, config, sid, typeof input.cwd === "string" ? input.cwd : null);
   if (route.scope !== "in") return null;
   const conn = route.conn;
   const key = connectionKey(conn);
   if (forbiddenNow(p, key, now())) return null;
+  // The newest reply's watcher takes the thread over: one still waiting from an earlier reply sees the lock name
+  // another and stops (watchOver), so the thread's latest turn always gets a whole wait of its own.
   const lock = join(p.state, `${sid}.watch.lock`);
-  const holder = readJson(lock);
-  if (holder && holder.pid !== process.pid && alive(holder.pid)) return null;
-  writeJson(lock, { pid: process.pid });
+  const lockId = randomUUID();
   const started = now();
+  writeJson(lock, { pid: process.pid, id: lockId, started });
+  const w = {
+    p,
+    conn,
+    sid,
+    key,
+    ask,
+    home,
+    config,
+    now,
+    wait,
+    lock,
+    lockId,
+    started,
+    checkMs: deps.checkMs ?? WATCH_CHECK_MS,
+    // What the thread's state counted when the wait began: its person typing, or its end, goes past these.
+    base: { prompts: startHook.prompts || 0, ends: startHook.ends || 0 },
+  };
   try {
     // Give the reply's report a moment to arrive, so AgentMingo knows the branch.
-    await wait(Math.min(every(0), 15_000));
-    while (now() - started < forMs) {
-      const hook = readJson(join(p.state, `${sid}.hook.json`)) || {};
-      if (hook.lastKind === "prompt" && hook.lastSentAt > started) return null;
-      // Refused since it started (another process heard a 403): nothing to wait for.
-      if (forbiddenNow(p, key, now())) return null;
+    if (await pauseWatch(w, Math.min(every(0), 15_000))) return null;
+    while (now() - started < limitFor(long)) {
+      // Typed in, ended, taken over or refused (another process heard a 403) since it started: nothing to wait for.
+      if (watchOver(w)) return null;
+      // Until it asks again: its pace, but never past when it stops listening.
+      const elapsed = now() - started;
+      const pause = Math.max(0, Math.min(every(elapsed), limitFor(long) - elapsed));
       // AgentMingo isn't answering: ask again once the wait is over.
       if (backingOff(p, key, now())) {
-        await wait(every(now() - started));
+        if (await pauseWatch(w, pause)) return null;
         continue;
       }
-      const res = await ask(conn, sid);
+      // With replies on, it says when it asks next: until then the thread's page offers a reply.
+      const res = await ask(conn, sid, undefined, undefined, replies ? { listen: Math.ceil(pause / 1000) } : undefined);
       noteSend(p, key, res, now());
       // Disconnected, or refused (suspended, or made a viewer): nothing to wait for.
       if (res.status === 401 || res.status === 403) return null;
+      // Typed in while it asked: what came goes with that message, not a wake.
+      if (watchOver(w)) return null;
       const data = res.ok ? res.data : null;
-      if (data && !data.pullRequest && !data.following) return null;
+      // Following a workflow now (a person started one on its page): a decision there may come hours later.
+      if (data && data.following) long = true;
+      // A reply its person sent from the thread's page: the thread wakes with it, and with what was waiting.
+      const reply = replies && data ? replyOf(data.reply) : null;
+      if (reply) {
+        const note = await takeReply(w, reply, data);
+        if (note) return note;
+      }
+      if (data && !data.pullRequest && !data.following && !replies) return null;
       // A workflow step it hasn't been given (a person decided, or reviews cleared): wake it with that.
       const step = data && data.following && data.step && typeof data.step.id === "string" ? data.step : null;
       const known = readJson(stepFile(p, sid)) || {};
@@ -2515,31 +2739,33 @@ export async function runWatch(home, raw, deps = {}) {
         writeJson(stepFile(p, sid), { ...readJson(stepFile(p, sid)), given: step.id });
         return withCommand(step.note, home);
       }
-      if (data && !data.following && !config.reviews) return null;
+      if (data && !data.following && !config.reviews && !replies) return null;
       if (config.reviews && data && Array.isArray(data.pending) && data.pending.length) {
         // AgentMingo says whether to wake: review fixes within their rounds, or a checklist step.
         const wake = typeof data.wake === "boolean" ? data.wake : data.rounds < data.maxRounds;
-        if (!wake || !data.note) return null;
-        const ids = data.pending.map((i) => i.id);
-        // A message just took (some of) them, and AgentMingo hasn't heard yet: they're told; wait for what comes next.
-        if (!claimTold(p, sid, ids)) {
-          await wait(every(now() - started));
-          continue;
-        }
-        const told = await ask(conn, sid, ids);
-        if (!told.ok) {
-          releaseTold(p, sid, [...new Set(ids.map(toldName))]);
+        if (wake && data.note) {
+          const ids = data.pending.map((i) => i.id);
+          // A message just took (some of) them, and AgentMingo hasn't heard yet: they're told; wait for what comes next.
+          if (claimTold(p, sid, ids)) {
+            const told = await ask(conn, sid, ids);
+            if (!told.ok) {
+              releaseTold(p, sid, [...new Set(ids.map(toldName))]);
+              return null;
+            }
+            rmSync(feedbackFile(p, sid), { force: true });
+            return data.note;
+          }
+        } else if (!long) {
+          // The automatic rounds are used up: they wait for the person's next message (or, listening on, their reply).
           return null;
         }
-        rmSync(feedbackFile(p, sid), { force: true });
-        return data.note;
       }
-      await wait(every(now() - started));
+      if (await pauseWatch(w, pause)) return null;
     }
     return null;
   } finally {
     try {
-      if ((readJson(lock) || {}).pid === process.pid) unlinkSync(lock);
+      if ((readJson(lock) || {}).id === lockId) unlinkSync(lock);
     } catch {
       // Already gone.
     }
@@ -2560,13 +2786,14 @@ export const APPROVAL_WAIT_MAX_S = 8 * 3600;
 /** Tools whose prompts are questions or a plan to approve, not permissions: no request is opened for them. */
 const NOT_PERMISSIONS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 /**
- * Claude Code versions on which AgentMingo's runbook checks (run by hand, and recorded with the release that adds a
- * version here) found the prompt stays on screen and answerable while this hook waits: in a terminal, and in its VS
- * Code extension and desktop app. None yet. On any other version a hook only reports, as before, unless its person
- * turned on waiting on versions not checked (`approvals on --unchecked`), knowing that.
+ * Claude Code versions known to misbehave while this hook waits (a prompt that stops taking keys, say): on these a hook
+ * only reports the prompt, as before. None so far; a release adds one when one is found. In a terminal, the guard on
+ * every other version is the on-screen probe (DIALOG_SHOWN_WITHIN_MS): the hook waits only once Claude Code says the
+ * prompt is on screen, else it leaves the prompt to the terminal at once. Claude Code doesn't document that a hook can
+ * wait while its prompt stays usable, so a version can change that; the probe and this list are what catch it.
  */
-export const CHECKED_TERMINAL_VERSIONS = [];
-export const CHECKED_APP_VERSIONS = [];
+export const KNOWN_BAD_TERMINAL_VERSIONS = [];
+export const KNOWN_BAD_APP_VERSIONS = [];
 /** Where Claude Code runs as an app (CLAUDE_CODE_ENTRYPOINT): its VS Code extension and its desktop app, exactly. */
 const APP_ENTRYPOINTS = new Set(["claude-vscode", "claude-desktop"]);
 /**
@@ -2986,19 +3213,20 @@ export function transcriptFacts(file, maxBytes = 262_144) {
 
 /**
  * Whether a hook may wait for an answer from AgentMingo where this session runs: { ok, probe } or { ok: false, why }.
- * Not a headless run (`claude -p`: nobody is at a prompt there), not somewhere unknown, and only on a Claude Code
- * version checked (CHECKED_TERMINAL_VERSIONS, CHECKED_APP_VERSIONS), or any version when its person chose that here
- * (`unchecked`). `probe`: in a terminal, wait only once Claude Code says the prompt is on screen (promptShownSince).
- * Its VS Code extension and desktop app send no such notice: there Claude Code asks the app and runs the hook at the
- * same time, and takes whichever answers first. Anywhere else it reports the prompt only, as before.
+ * Not a headless run (`claude -p`: nobody is at a prompt there), not somewhere unknown, and not on a Claude Code version
+ * known to misbehave (KNOWN_BAD_TERMINAL_VERSIONS, KNOWN_BAD_APP_VERSIONS; `approvals on --unchecked`, from reporter 14,
+ * changes nothing now). `probe`: in a terminal, wait only once Claude Code says the prompt is on screen
+ * (promptShownSince), which is the guard there. Its VS Code extension and desktop app send no such notice: there Claude
+ * Code asks the app and runs the hook at the same time, and takes whichever answers first. Anywhere else it reports the
+ * prompt only, as before.
  */
-export function promptHost(facts, unchecked = false) {
+export function promptHost(facts) {
   const entrypoint = facts && typeof facts.entrypoint === "string" ? facts.entrypoint : "";
   const version = facts && typeof facts.version === "string" ? facts.version : null;
   if (!entrypoint) return { ok: false, why: "unknown" };
   if (entrypoint.startsWith("sdk")) return { ok: false, why: "headless" };
-  if (entrypoint === "cli") return unchecked || CHECKED_TERMINAL_VERSIONS.includes(version) ? { ok: true, probe: true } : { ok: false, why: "unchecked_version" };
-  if (APP_ENTRYPOINTS.has(entrypoint)) return unchecked || CHECKED_APP_VERSIONS.includes(version) ? { ok: true, probe: false } : { ok: false, why: "unchecked_version" };
+  if (entrypoint === "cli") return KNOWN_BAD_TERMINAL_VERSIONS.includes(version) ? { ok: false, why: "known_bad_version" } : { ok: true, probe: true };
+  if (APP_ENTRYPOINTS.has(entrypoint)) return KNOWN_BAD_APP_VERSIONS.includes(version) ? { ok: false, why: "known_bad_version" } : { ok: true, probe: false };
   return { ok: false, why: "unknown" };
 }
 
@@ -3138,7 +3366,7 @@ function waitingPrompt(home, raw, waitArg, deps) {
   if (route.scope !== "in") return null;
   const key = connectionKey(route.conn);
   if (forbiddenNow(p, key, now()) || backingOff(p, key, now(), true)) return null;
-  const host = promptHost(deps.facts || transcriptFacts(input.transcript_path), config.approvals.unchecked === true);
+  const host = promptHost(deps.facts || transcriptFacts(input.transcript_path));
   if (!host.ok) return null;
   const opts = { commands: config.approvals.commands === true, platform: deps.platform };
   const target = permissionTarget(input, opts);
@@ -3303,20 +3531,22 @@ export function setApprovals(home, choice) {
   return { approvals: next.approvals || null, settings: file, hooks };
 }
 
-/** Which Claude Code versions a hook waits on, in words: the checked ones, or any, when its person chose that. */
-function versionsWords(unchecked) {
-  if (unchecked) return "on any Claude Code version, including ones not checked yet (you chose --unchecked)";
-  const all = [...new Set([...CHECKED_TERMINAL_VERSIONS, ...CHECKED_APP_VERSIONS])];
-  if (!all.length) return "on no Claude Code version yet: none has been checked with this, so prompts are only reported until a reporter update adds checked versions (or turn it on again with --unchecked)";
-  return `only on Claude Code versions checked with this (in a terminal: ${CHECKED_TERMINAL_VERSIONS.join(", ") || "none yet"}; in VS Code and the desktop app: ${CHECKED_APP_VERSIONS.join(", ") || "none yet"})`;
+/** Which Claude Code versions a hook waits on, in words: any but those known to misbehave, and the guard in a terminal. */
+function versionsWords() {
+  const bad = [...new Set([...KNOWN_BAD_TERMINAL_VERSIONS, ...KNOWN_BAD_APP_VERSIONS])];
+  return `on any Claude Code version${bad.length ? ` but ${bad.join(", ")} (known to misbehave)` : ""}; in a terminal only once Claude Code says the prompt is on screen (within 20 seconds, else the terminal has it alone)`;
 }
 
 /** What `status` and `approvals status` say about answering prompts from AgentMingo. */
 export function approvalsLine(config) {
   const a = config && typeof config === "object" ? config.approvals : null;
-  if (!a || typeof a !== "object") return `Answering prompts from AgentMingo: off (turn it on in your own terminal with: node ${SCRIPT} approvals on).`;
-  return `Answering prompts from AgentMingo: on for file edits${a.commands ? ", with commands shown (to deny; allowing commands isn't offered)" : ""}. A prompt waits up to ${waitWords(a.waitS)} for an answer there, in sessions started since you turned it on, ${versionsWords(a.unchecked === true)}. Turn it off with: node ${SCRIPT} approvals off`;
+  if (!a || typeof a !== "object") return `Answering prompts and replies from AgentMingo: off (turn it on in your own terminal with: node ${SCRIPT} approvals on).`;
+  return `Answering prompts and replies from AgentMingo: on for file edits${a.commands ? ", with commands shown (to deny; allowing commands isn't offered)" : " (commands can only be denied there)"}. A prompt waits up to ${waitWords(a.waitS)} for an answer there, in sessions started since you turned it on, ${versionsWords()}. A thread waiting for you can be replied to from its page. Turn it off with: node ${SCRIPT} approvals off`;
 }
+
+/** What turning answering prompts on says about replies, which go with it. */
+const REPLIES_SAID =
+  "- Replies too: when a thread finishes its turn and waits for you, you can answer it from its page (Continue, Yes, No or a short text). After each reply the watcher listens up to 8 hours for one, and wakes the thread with it, as your words. Its text is sent to this computer; only you can send one, signed in as yourself. Someone who gets into your AgentMingo account could send your threads a reply; a command a thread then wants to run still needs your terminal to allow it (unless your Claude Code settings already allow it), since AgentMingo can only deny commands.";
 
 /** Asks a question in the terminal and resolves to the line typed. */
 function askLine(question) {
@@ -3330,8 +3560,9 @@ function askLine(question) {
 }
 
 /**
- * `approvals on [--commands] [--unchecked] [--wait 1h] | off | status`. On only from a terminal of the person's own, never from
- * inside Claude Code's Bash tool, and only after they type "yes" to what it turns on; off and status from anywhere.
+ * `approvals on [--commands] [--wait 1h] | off | status`. On only from a terminal of the person's own, never from inside
+ * Claude Code's Bash tool, and only after they type "yes" to what it turns on; off and status from anywhere. (--unchecked,
+ * from reporter 14, is still taken and changes nothing: no version list holds waiting back now but known bad ones.)
  */
 export async function approvalsCommand(home, mode, flags = {}, deps = {}) {
   const say = deps.say || console.log;
@@ -3347,7 +3578,7 @@ export async function approvalsCommand(home, mode, flags = {}, deps = {}) {
   }
   const env = deps.env || process.env;
   const terminal = deps.terminal ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  if (insideClaudeBash(env, terminal)) throw new Error("Run this in your own terminal: it won't turn on from your coding agent's own commands.");
+  if (insideClaudeBash(env, terminal)) throw new Error("Run this in your own terminal: it doesn't turn on inside Claude Code's Bash tool.");
   if (!terminal) throw new Error("Run this in a terminal of your own: it asks you to type yes.");
   if (!config) throw new Error("Not connected yet. Run install first (the command is on the Sessions page).");
   const waitS = parseWait(flags.wait);
@@ -3359,9 +3590,8 @@ export async function approvalsCommand(home, mode, flags = {}, deps = {}) {
     flags.commands ? "- With --commands, a command is sent too, masked (best effort: a password a masking rule doesn't know can get through), so you can deny it there. Allowing a command from AgentMingo isn't offered." : "- Commands aren't sent (add --commands to see them there, to deny them).",
     "- Only you can answer, signed in as yourself (not teammates or admins). Allow is offered only for a file inside the repository, not for files that can run code or change settings by themselves; allowing a file change can still lead to running code later (tests run what's in it). Deny always works.",
     "- Someone who gets into your AgentMingo account could allow a file change here, and someone who controls AgentMingo's servers or database could answer for you or show you a different file than the one that changes. The reporter's updates come from AgentMingo too (turn them off with: auto-update off).",
-    flags.unchecked
-      ? "- With --unchecked, prompts wait on any Claude Code version, including ones nobody has checked with this. In a terminal a prompt waits only once Claude Code says it's on screen; in VS Code and the desktop app Claude Code shows its prompt and runs this hook at the same time. If a terminal prompt ever stops taking your keys while it waits, turn this off and tell AgentMingo."
-      : `- It waits ${versionsWords(false)}.`,
+    `- It waits ${versionsWords()}. In VS Code and the desktop app Claude Code shows its prompt and runs this hook at the same time. Claude Code doesn't document that a hook can wait while its prompt stays usable: if a terminal prompt ever stops taking your keys while it waits, turn this off and tell AgentMingo.`,
+    REPLIES_SAID,
     `- Only in sessions started from now on. Turn it off any time with: node ${SCRIPT} approvals off`,
   ])
     say(line);
@@ -3760,6 +3990,8 @@ function outboxFiles(p) {
 
 /** Adds what the server shows for a session (title, repository, usage, tool calls…) to its latest event. */
 function enrich(p, events, config) {
+  // Replies from a thread's page go with answering prompts from AgentMingo, which only this computer's config has.
+  const replies = repliesOn(readJson(p.config));
   const latest = new Map();
   for (const e of events) latest.set(e.session, e);
   for (const [session, event] of latest) {
@@ -3804,6 +4036,8 @@ function enrich(p, events, config) {
     event.reviews = Boolean(config.reviews);
     // Whether it lets sessions know about each other: off, AgentMingo names its threads in no teammate's notes.
     event.shareFiles = Boolean(config.shareFiles);
+    // Whether it takes replies from the thread's page: only then does the page offer one.
+    event.replies = replies;
   }
   return events;
 }
@@ -4030,10 +4264,76 @@ export async function runFlush(home) {
   }
 }
 
-/** After sending: launch.mjs in place, and the version AgentMingo's last answer asked for. Never throws. */
+/**
+ * For the copy install put in this folder, once per version that has a longer watch (15): raises this reporter's own
+ * watch hook's timeout in Claude Code's settings to WATCH_TIMEOUT_S, so an install from before can wait up to 8 hours
+ * for an approval or a reply without running the setup command again. It changes only that number, on a hook this
+ * reporter added (this folder's), never lowers one, and changes nothing else there; the watcher itself still decides how
+ * long it listens (WATCH_FOR_MS or WATCH_LONG_MS), and a person who lowered the timeout afterwards keeps theirs. Settings
+ * it can't write (a link to a read-only file, say) are left alone and logged: `status` says to run the setup command
+ * again. Never throws. Says what it did.
+ */
+export function raiseWatchTimeout(p, config, deps = {}) {
+  try {
+    const script = resolve(deps.script || SCRIPT);
+    if (!config || script !== resolve(join(p.home, "reporter.mjs"))) return "not the installed copy";
+    if (config.watchTimeoutChecked === WATCH_TIMEOUT_S) return "checked";
+    const file = typeof config.settings === "string" && config.settings ? config.settings : null;
+    if (!file) return "no settings";
+    const before = readSettings(file);
+    const next = structuredClone(before);
+    let raised = 0;
+    let was = null;
+    for (const group of next.hooks && Array.isArray(next.hooks.Stop) ? next.hooks.Stop : []) {
+      for (const hook of group && Array.isArray(group.hooks) ? group.hooks : []) {
+        // This folder's hook only: its script in this folder, or --home naming it.
+        const mine = [`${p.home}/`, `${p.home}\\`, `"${p.home}"`].some((s) => hook.command && hook.command.includes(s));
+        if (!isReporterHook(hook) || !/\swatch\b/.test(hook.command) || !mine) continue;
+        if (Number.isFinite(hook.timeout) && hook.timeout >= WATCH_TIMEOUT_S) continue;
+        if (Number.isFinite(hook.timeout)) was = was === null ? hook.timeout : Math.min(was, hook.timeout);
+        hook.timeout = WATCH_TIMEOUT_S;
+        raised += 1;
+      }
+    }
+    if (raised) {
+      writeSettings(file, before, next);
+      log(p, `raised the watch hook's timeout in ${file} to ${WATCH_TIMEOUT_S / 60} minutes (only that), so a thread can wait up to 8 hours for an approval or a reply; sessions already open keep the timeout they started with until they're restarted`);
+    }
+    // The timeout before (watchTimeoutWas): sessions that started before it was raised may still have it (runWatch).
+    patchConfig(p, raised ? { watchTimeoutChecked: WATCH_TIMEOUT_S, watchTimeoutRaisedAt: Date.now(), ...(was !== null ? { watchTimeoutWas: was } : {}) } : { watchTimeoutChecked: WATCH_TIMEOUT_S });
+    return raised ? "raised" : "current";
+  } catch (e) {
+    log(p, `couldn't raise the watch hook's timeout (${e && e.message ? e.message : e}): run the setup command again to raise it`);
+    return "failed";
+  }
+}
+
+/**
+ * What install and `status` say about how long the watcher listens after a reply, from its hook's timeout in Claude
+ * Code's settings (`timeoutS`; null when it can't tell), and how that timeout got there.
+ */
+export function watchLine(config, timeoutS = watchHookTimeoutS(config)) {
+  const replies = repliesOn(config);
+  const long = replies ? "for an approval, a workflow's next step or your reply from AgentMingo" : "for an approval or a workflow's next step";
+  if (timeoutS !== null && timeoutS < WATCH_LONG_MS / 1000 + 60) {
+    const fix =
+      config && config.watchTimeoutChecked === WATCH_TIMEOUT_S
+        ? "This reporter didn't raise it (it couldn't write the settings, or it was lowered since): run the setup command again"
+        : "This reporter raises it after its next send, if it can write the settings; or run the setup command again";
+    return `After a reply, the watcher listens ${Math.max(1, Math.floor(timeoutS / 60) - 1)} minutes at most: its hook's timeout in Claude Code's settings is ${Math.round(timeoutS / 60)} minutes, from an earlier install. ${fix}, to let threads wait up to 8 hours ${long}.`;
+  }
+  const how =
+    config && config.watchTimeoutRaisedAt
+      ? ` An update raised its hook's timeout on ${when(config.watchTimeoutRaisedAt)}: sessions that were already open keep the timeout they started with (${Math.round((config.watchTimeoutWas || 1200) / 60)} minutes) until you restart them, and Claude Code may say their hooks changed.`
+      : "";
+  return `After a reply, the watcher listens up to 8 hours ${long}${replies ? "" : " in a thread that follows a workflow"}, and 18 minutes otherwise for review results; it stops when you type in the thread or it ends, and the thread's next reply starts a new one.${how}`;
+}
+
+/** After sending: launch.mjs in place, the watch hook's timeout, and the version AgentMingo's last answer asked for. Never throws. */
 async function keepCurrent(p, config, drained) {
   try {
     ensureLayout(p, readJson(p.config));
+    raiseWatchTimeout(p, readJson(p.config));
     const latest = readJson(p.latest) || {};
     // Not updating while AgentMingo isn't taking reports (but a copy that didn't load is put back regardless).
     await selfUpdate(p, { ...(readJson(p.config) || config), url: latest.url || config.url }, drained.ok ? latest : {});
@@ -4791,12 +5091,16 @@ function patchConfig(p, patch) {
  * anything else in it, stay), with the new address and token, and what this run's flags change. The connections
  * are merged apart (withConnection).
  */
-export function installConfig(previous, args, url, token) {
+export function installConfig(previous, args, url, token, approvalsOn = false) {
   const before = previous && typeof previous === "object" ? { ...previous } : {};
   delete before.connections;
-  // Answering prompts from AgentMingo is kept as it was: no flag turns it on (the setup command comes from AgentMingo,
-  // so only `approvals on`, in the person's own terminal, does); --no-approvals turns it off.
+  // Answering prompts and replies from AgentMingo is kept as it was, unless --no-approvals turns it off, or --approvals
+  // turns it on (`approvalsOn`: only once approvalsFromSetup found install running in the person's own terminal; the flag
+  // alone never does). Turned on: file edits, an hour's wait, and a new key for binding answers that never leaves here.
   if (args["no-approvals"]) delete before.approvals;
+  else if (approvalsOn && !repliesOn(before)) {
+    before.approvals = { files: true, commands: false, unchecked: false, waitS: APPROVAL_WAIT_DEFAULT_S, key: randomBytes(32).toString("base64url") };
+  }
   return {
     ...before,
     url,
@@ -4823,7 +5127,7 @@ function keptChoices(previous, args) {
   if (previous.reviews === true && !args.reviews && !args["no-reviews"]) kept.push("review results on");
   if (previous.autoUpdate === false && !args["no-auto-update"]) kept.push("updating off");
   if (previous.approvals && typeof previous.approvals === "object" && !args["no-approvals"]) {
-    kept.push(`answering prompts from AgentMingo on (file edits${previous.approvals.commands ? ", commands shown" : ""}${previous.approvals.unchecked ? ", Claude Code versions not checked too" : ""}; approvals off turns it off)`);
+    kept.push(`answering prompts and replies from AgentMingo on (file edits${previous.approvals.commands ? ", commands shown" : ""}; approvals off turns it off)`);
   }
   return kept;
 }
@@ -4865,12 +5169,50 @@ function scopeSaid(org, data) {
   return `Threads report to ${org} from ${list(connected.length ? connected : yours)}${connected.length && yours.length ? `, and ${list(yours)} (you added them)` : ""}. Threads in any other folder send nothing about themselves; to add a repository of yours: ${how}.`;
 }
 
+/**
+ * Whether install's --approvals (the setup command's box "Answer prompts and reply to threads from AgentMingo", ticked
+ * by default) turns answering prompts and replies on. Already on (`previous`, the config from before), it changes
+ * nothing and refuses nothing: a run again from provisioning goes through. To turn it on it needs, all three: the
+ * setup command's one-time code (--code, made on the signed-in Sessions page with the box ticked; the older --token
+ * form, whose token is readable in config.json, never turns it on), a real terminal, and not Claude Code's own Bash
+ * tool (insideClaudeBash). Otherwise it refuses, saying why, before anything changes or the setup code is used. These
+ * checks keep a mistake or a stray command from turning it on; they don't stop a program on the computer that sets out
+ * to fake a terminal. The command already downloads and runs AgentMingo's code, so the flag adds no trust of its own:
+ * what matters is that a person runs it, and that install says plainly what it turned on.
+ */
+export function approvalsFromSetup(args, previous = null, env = process.env, terminal = Boolean(process.stdin.isTTY && process.stdout.isTTY)) {
+  if (!args.approvals || args["no-approvals"]) return false;
+  if (repliesOn(previous)) return false;
+  const how = "Nothing was changed, and the setup code wasn't used: paste the command into a terminal of your own, or untick “Answer prompts and reply to threads from AgentMingo” on the Sessions page for a command without it.";
+  if (!args.code) {
+    throw new Error(
+      `--approvals turns on answering prompts and replies from AgentMingo only with the setup command's one-time code (--code), from your Sessions page. Nothing was changed. Copy a new command there, or turn it on with: node ${SCRIPT} approvals on`,
+    );
+  }
+  if (insideClaudeBash(env, terminal)) throw new Error(`--approvals doesn't turn on answering prompts and replies from AgentMingo inside Claude Code's Bash tool. ${how}`);
+  if (!terminal) throw new Error(`--approvals turns on answering prompts and replies from AgentMingo only when you run the setup command in a terminal yourself. ${how}`);
+  return true;
+}
+
+/** What install says when its --approvals turned answering prompts and replies on. */
+function approvalsTurnedOnSaid() {
+  return [
+    "Turned on (the setup command's --approvals, with its one-time code, run in a terminal): answering prompts and replies from AgentMingo, on this computer.",
+    `- A thread's permission prompt also opens on its page in AgentMingo, for you alone (not teammates or admins), and waits there up to ${waitWords(APPROVAL_WAIT_DEFAULT_S)}: Allow once for a file edit inside the repository (not files that can run code or change settings by themselves), Deny for anything. Commands can only be denied there; allowing one stays in your terminal. The terminal prompt stays on screen, and whichever is answered first counts.`,
+    "- A thread that finishes its turn and waits for you can be answered from its page (Continue, Yes, No or a short text): after each reply its watcher listens up to 8 hours (until you type in the thread), and wakes the thread with yours, as your words. Replying needs a sign-in in that browser within the last day.",
+    "- Sent: a prompt's tool, and for a file edit its path in the repository and line counts (never the change); your replies come to this computer. Someone who gets into your AgentMingo account could answer or reply for you.",
+    `- In sessions started from now on. To turn it off: node ${SCRIPT} approvals off`,
+  ];
+}
+
 async function install(args) {
   const major = Number(process.versions.node.split(".")[0]);
   if (major < MIN_NODE_MAJOR) throw new Error(`Node.js ${MIN_NODE_MAJOR} or newer is needed (this is ${process.versions.node}).`);
   if (!args.url || (!args.token && !args.code)) throw new Error("Usage: node reporter.mjs install --url https://agentmingo.com --org <organization> --code amc_… (copy the command from the Sessions page)");
   const home = resolve(args.home || defaultHome());
   const p = paths(home);
+  // Before anything changes, or the one-time code is used: --approvals turns it on only with that code, in a terminal.
+  const approvalsOn = approvalsFromSetup(args, readJson(p.config) || readJson(`${p.config}.removed`));
   const url = args.url.replace(/\/+$/, "");
   // The setup command carries a one-time code; one from before carries the token itself (--token), which still works.
   const traded = args.code ? await tradeSetupCode(url, args.code, args.org) : null;
@@ -4879,7 +5221,7 @@ async function install(args) {
   // After AgentMingo removed this computer's only connection (config.json.removed), the choices made before still
   // stand; that connection doesn't.
   const previous = current || readJson(`${p.config}.removed`);
-  const config = installConfig(previous, args, url, token);
+  const config = installConfig(previous, args, url, token, approvalsOn);
   const settingsFile = config.settings;
   // A traded code's answer says whose connection it is: asking again could fail after the code was spent.
   const check = traded && traded.report ? { ok: true, body: { data: traded.report } } : await post(config, []);
@@ -4945,7 +5287,9 @@ async function install(args) {
   if (config.shareFiles) console.log("Sharing edited file paths: sessions in the same repository get a short note about each other.");
   else console.log(NOT_SHARING);
   if (config.reviews) console.log(`Review results on: review bots' and CI's results on a session's pull request come back to that session, and can wake it when it's idle (up to 3 rounds per pull request; a merge conflict or a pull request checklist step wakes it too). To stop: node ${SCRIPT} reviews off`);
-  console.log(approvalsLine(config));
+  if (approvalsOn && !repliesOn(previous)) for (const line of approvalsTurnedOnSaid()) console.log(line);
+  else console.log(approvalsLine(config));
+  console.log(watchLine(config));
   console.log(
     "Sessions on a task whose project has a workflow for threads follow it step by step. Claude may report steps, and start a task's session, without asking: install allowed this script's step and start commands and the agentmingo MCP tools in Claude Code's permissions. What Claude writes for a step (the plan, for the plan step) and the files it attaches are sent.",
   );
@@ -5246,6 +5590,7 @@ function status(args) {
   }
   for (const line of countingLines(p, Date.now())) console.log(line);
   console.log(approvalsLine(config));
+  console.log(watchLine(config));
   console.log(hasLeanGit([join(claudeDir(), "CLAUDE.md")]) ? "Lean git rules: on (in your CLAUDE.md)." : "Lean git rules: not in your CLAUDE.md.");
   if (existsSync(p.log)) {
     const lines = readFileSync(p.log, "utf8").trim().split("\n").slice(-5);
@@ -5314,6 +5659,7 @@ const OPTIONS = {
   wait: { type: "string" },
   commands: { type: "boolean" },
   unchecked: { type: "boolean" },
+  approvals: { type: "boolean" },
   "no-approvals": { type: "boolean" },
 };
 
@@ -5407,7 +5753,7 @@ export async function main(argv) {
       return 0;
     }
     console.log(
-      "Usage: node reporter.mjs install --url <AgentMingo address> --org <organization> --code <setup code> [--no-titles] [--lean-git] [--share-files|--no-share-files] [--reviews|--no-reviews] [--no-mcp] [--no-auto-update] [--no-approvals] | status | repos [add [owner/name] | remove <owner/name>] [--org <organization>] | start <task key> [--repo <name>] [--in <folder>] [--no-env | --env-all] [--no-launch] | lean-git on|off|status | titles on|off | share-files on|off | reviews on|off | auto-update on|off | approvals on [--commands] [--unchecked] [--wait <time>]|off|status | step <id> done|failed <summary> | mcp | uninstall",
+      "Usage: node reporter.mjs install --url <AgentMingo address> --org <organization> --code <setup code> [--no-titles] [--lean-git] [--share-files|--no-share-files] [--reviews|--no-reviews] [--no-mcp] [--no-auto-update] [--approvals|--no-approvals] | status | repos [add [owner/name] | remove <owner/name>] [--org <organization>] | start <task key> [--repo <name>] [--in <folder>] [--no-env | --env-all] [--no-launch] | lean-git on|off|status | titles on|off | share-files on|off | reviews on|off | auto-update on|off | approvals on [--commands] [--wait <time>]|off|status | step <id> done|failed <summary> | mcp | uninstall",
     );
     return command ? 1 : 0;
   } catch (e) {
