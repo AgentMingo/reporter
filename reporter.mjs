@@ -202,7 +202,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "12";
+export const VERSION = "13";
 const SCRIPT = fileURLToPath(import.meta.url);
 
 /** Hooks this reporter installs. PostToolUse is only a heartbeat, so it runs without making Claude wait. */
@@ -3816,7 +3816,7 @@ async function install(args) {
   else console.log(`Titles on: each session's title is Claude Code's own, or the first line of your first message, masked on this computer. To leave them out: node ${SCRIPT} titles off`);
   if (config.shareFiles) console.log("Sharing edited file paths: sessions in the same repository get a short note about each other.");
   else console.log(NOT_SHARING);
-  if (config.reviews) console.log(`Review results on: CodeRabbit's and CI's results on a session's pull request come back to that session, and can wake it when it's idle (up to 3 rounds per pull request; a merge conflict or a pull request checklist step wakes it too). To stop: node ${SCRIPT} reviews off`);
+  if (config.reviews) console.log(`Review results on: review bots' and CI's results on a session's pull request come back to that session, and can wake it when it's idle (up to 3 rounds per pull request; a merge conflict or a pull request checklist step wakes it too). To stop: node ${SCRIPT} reviews off`);
   console.log(
     "Sessions on a task whose project has a workflow for threads follow it step by step. Claude may report steps, and start a task's session, without asking: install allowed this script's step and start commands and the agentmingo MCP tools in Claude Code's permissions. What Claude writes for a step (the plan, for the plan step) and the files it attaches are sent.",
   );
@@ -4248,7 +4248,7 @@ export async function main(argv) {
     }
     if (command === "reviews" && ["on", "off"].includes(mode)) {
       setConfig(resolve(values.home || defaultHome()), { reviews: mode === "on" });
-      console.log(mode === "on" ? "Review results on: CodeRabbit's and CI's results on a session's pull request come back to that session." : "Review results off.");
+      console.log(mode === "on" ? "Review results on: review bots' and CI's results on a session's pull request come back to that session." : "Review results off.");
       return 0;
     }
     if (command === "auto-update" && ["on", "off"].includes(mode)) {

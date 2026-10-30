@@ -4,6 +4,12 @@ Each version is the `VERSION` constant in `reporter.mjs`. Reporters update thems
 
 From version 11 on, each entry gives the SHA-256 of `reporter.mjs` as agentmingo.com served it, and the date it started serving it. This repository starts at version 12; each release is published here by hand for now. Versions 1 to 11 came before this repository and their files aren't published here. The entries for 1 to 10 are summaries of what changed, from the script's history in AgentMingo's own repository, and their dates are when each version was written, not when it was served.
 
+## 13 (served from 2026-10-29)
+
+SHA-256 of `reporter.mjs`: `197e13239f78a91f70b10653fd827d3de2614a8c788303dca5fb8f803199c2b9`
+
+- Wording only: what `install` and `reviews on` print now says "review bots' and CI's results" instead of naming one review bot. Nothing it sends, reads or writes changed.
+
 ## 12 (served from 2026-10-29)
 
 SHA-256 of `reporter.mjs`: `2e1d4d91f79701d0916775d09cc999420dd2fbd5dfc2dbd16854e60334b2cce4`
