@@ -27,8 +27,8 @@
  * `agentmingo-reporter/` and a number), and like any request, your IP address:
  * - What happens in each thread, and when: it started, you sent a message, it's working (at most every five minutes,
  *   and at once after a tool call that ran long), with how long the tool call behind it ran, it waits for you, it was
- *   answered, it replied, it ended. Each with its time, a random id of its own (so it's recorded once), and Claude
- *   Code's id for the thread.
+ *   answered, it replied (and whether it was a short turn to keep listening, below), it ended. Each with its time, a
+ *   random id of its own (so it's recorded once), and Claude Code's id for the thread.
  * - Where it works: its repository name and branch, whether the branch is pushed and how many of its commits aren't,
  *   how many files have changes not yet committed (a count, never their names or what changed), and the app it runs in.
  * - Counts from the session's transcript, from when the reporter first saw the session: token counts by model (with
@@ -110,6 +110,30 @@
  * they then ask to run. A reply is for the turn it answers: typing in the thread first, the thread ending, or the
  * thread going on without it (woken for something else) cancels it.
  *
+ * Keep listening (from version 18): a thread that waits for you on work still open (its task isn't done or canceled, it
+ * has an open pull request, or it follows a workflow run that's going) stays reachable from its page while that work is
+ * open and this computer stays on and awake, a week at most, with replies on here and your setting in AgentMingo on (it
+ * is by default: "Keep threads listening while their work is open", on its Notifications page). As the watcher's time
+ * runs out (its 8 hours, or any shorter limit), it asks AgentMingo once more, so a reply sent in its last minutes is
+ * still picked up, saying (with replies on) it stops listening now. When it listened its whole 8 hours and AgentMingo's
+ * latest answer says to keep listening (your setting is on, the thread still waits for you on open work, and its wait
+ * began less than a week ago), it wakes the thread with a short note asking Claude to reply only "Still listening for
+ * AgentMingo" and do nothing else, so the thread takes one tiny turn and that turn's Stop starts a fresh watcher: about
+ * every 8 hours, up to 3 a day. AgentMingo's answer is only yes or no: the note's words are fixed in this script
+ * (KEEP_LISTENING_NOTE). At most 21 times in one wait (7 days of 8 hours; you typing in the thread, or a real turn
+ * ending, starts the count again), and never in a thread whose watch hook can't give it its whole 8 hours (one started
+ * before 8-hour listening keeps its 20 minutes: each such turn would buy it only 20 more), nor when you typed in the
+ * thread, it ended, a newer watcher took over, AgentMingo refused this computer, or you turned replies off here since.
+ * It stops, and nothing on the page reaches the thread until you type in it, if this computer is turned off or
+ * restarts, Claude Code is closed, or the short turn fails (a usage limit, say); and it may stop if this computer is
+ * asleep as a watch ends (as it wakes, it still asks and keeps listening, unless Claude Code stopped the hook while it
+ * slept: within the hook's last 10 minutes it never has). Each of those turns re-reads the whole conversation, so it
+ * uses tokens on your own Claude plan like any other turn, more the longer the conversation (8 hours on, it's no longer
+ * cached), counted in the thread's usage. Its Stop's report says it was such a turn (keepAlive), so AgentMingo doesn't
+ * start a new turn for it or tell you about it: that flag is the one new thing this sends. The count, and whether the
+ * next Stop is such a turn, stay on this computer (state/<session id>.keep.json, removed when you type in the thread, a
+ * real turn ends, or the thread starts again or ends; a compaction keeps it).
+ *
  * On a workflow (below), it also sends whether a step Claude reports is done or failed, and what Claude writes when it reports a step (for the plan step, the plan
  * itself, with the repositories it names and whether it needs an end-to-end test, and why; AgentMingo masks the same
  * details when it arrives), the files Claude attaches to a step (reports, screenshots, videos, logs; up to 4 MB each,
@@ -131,9 +155,10 @@
  * that list with its next message (asked for just before the message reaches Claude, a second at most, so results
  * that came in after the watcher stopped aren't a message late), or, if it's idle after pushing, is woken with it: a
  * background hook waits up to 18 minutes after each reply for review results, asking every 30 seconds at first, then
- * every minute, then every two; at most 3 automatic rounds per pull request. In a session that follows a workflow, and
- * with replies on (above) in any session, it listens up to 8 hours instead (every five minutes after the first half
- * hour), so a plan approved or a reply sent hours later still wakes it. It stops within seconds of you typing in the
+ * every minute, then every two; 3 automatic rounds per pull request by default. In a session that follows a workflow,
+ * and with replies on (above) in any session, it listens up to 8 hours instead (every five minutes after the first half
+ * hour, and once more as its time runs out), so a plan approved or a reply sent hours later still wakes it (and with
+ * keep listening, above, for as long as its work is open, a week at most). It stops within seconds of you typing in the
  * thread or the thread ending (it looks at the thread's state on this computer every 5 seconds, without asking
  * AgentMingo), and the thread's next reply starts a watcher of its own, which takes over from it.
  * Claude Code stops the hook at its timeout: install gives it 8 hours and 10 minutes, and this version raises an earlier
@@ -292,7 +317,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "17";
+export const VERSION = "18";
 const SCRIPT = fileURLToPath(import.meta.url);
 
 /** Hooks this reporter installs. PostToolUse is only a heartbeat, so it runs without making Claude wait. */
@@ -332,10 +357,33 @@ export const WATCH_LONG_MS = 8 * 3_600_000;
 export const WATCH_CHECK_MS = 5_000;
 
 /**
+ * Keep listening (reporter 18): a long watcher with replies on whose time is up, while AgentMingo's latest answer says to
+ * keep listening (`keepListening`: its person's setting is on, the thread waits for them on work still open, and its wait
+ * began less than a week ago: AgentMingo's answer is the real limit), wakes the thread with KEEP_LISTENING_NOTE, so it
+ * takes one short turn and that turn's Stop starts a fresh watcher. At most this many times in one wait (7 days of
+ * 8-hour watches), a safety cap of its own: its person typing in the thread, or a real turn ending, starts the count again.
+ */
+export const KEEP_LISTENING_REARMS = 21;
+/**
+ * Only a watcher whose hook lets it listen this long (its whole WATCH_LONG_MS, as install's hook does) keeps listening,
+ * so it takes one short turn about every 8 hours, never more often: a thread started before 8-hour listening (Claude
+ * Code loaded its 20-minute hook when it started) never does, as each short turn would buy it only 20 more minutes, and
+ * neither does one whose hook's timeout isn't known (or was lowered by hand).
+ */
+export const KEEP_LISTENING_MIN_CAP_MS = WATCH_LONG_MS;
+/**
+ * What wakes a thread to keep it listening: one tiny turn that does nothing else, whose Stop starts a fresh watcher. Its
+ * words are fixed here (AgentMingo only says whether to keep listening). Its last sentence is for a note that lands as its
+ * person types: their words win.
+ */
+export const KEEP_LISTENING_NOTE =
+  "AgentMingo: keeping this thread reachable from its page (your person may reply there). Nothing has changed and nothing is needed. Reply with only: Still listening for AgentMingo. Don't run any tools or continue earlier work. If your person has written to you since, ignore this note and do what they asked.";
+
+/**
  * How long the watcher waits before asking again, `elapsed` after the reply: every 30 seconds for the first three
  * minutes (a quick review bot or CI answers by then), every minute until ten, every two until thirty, then every five.
  * Each ask is a request to AgentMingo: a thread left idle with an open pull request asks 17 times in its 18 minutes,
- * not 36, and one listening for 8 hours about 110 times.
+ * not 36, and one listening for 8 hours about 110 times; each asks once more when its time is up (runWatch).
  */
 export function watchEveryMs(elapsed) {
   if (elapsed < 3 * 60_000) return 30_000;
@@ -1200,6 +1248,9 @@ export function runHook(home, raw, now = Date.now(), flush = true) {
     const input = JSON.parse(raw);
     const sid = safeId(input.session_id);
     if (!sid) return { event: null, context: null };
+    // The Stop of a short turn its watcher woke it for to keep listening says so: AgentMingo starts no new turn for it.
+    // Moved on before anything else, so a thread whose repository stopped reporting still drops its count as it ends.
+    const keepAlive = noteKeepListening(p, sid, input);
     const hookFile = join(p.state, `${sid}.hook.json`);
     const usageFile = join(p.state, `${sid}.usage.json`);
     const state = readJson(hookFile) || {};
@@ -1248,7 +1299,7 @@ export function runHook(home, raw, now = Date.now(), flush = true) {
     else if (input.hook_event_name === "SessionEnd") state.ends = (state.ends || 0) + 1;
     // The watch hook's timeout as the session starts: Claude Code may keep the hooks it started with, so a timeout raised
     // later may not reach this session (runWatch listens within the lower of the two).
-    if (input.hook_event_name === "SessionStart") state.watchTimeoutS = watchHookTimeoutS(config);
+    if (input.hook_event_name === "SessionStart") state.watchTimeoutS = startedWatchTimeoutS(input, state, watchHookTimeoutS(config), config.watchTimeoutWas);
     // Claude Code's notice that a permission prompt is on screen (and still unanswered): a hook waiting for an answer
     // from AgentMingo goes on only once it knows the prompt shows (awaitDecision). In a file of its own, so another
     // hook rewriting the thread's state at the same moment can't lose it.
@@ -1260,6 +1311,7 @@ export function runHook(home, raw, now = Date.now(), flush = true) {
     if (reports) stepGiven = addNotes(p, config, state, input, sid, event, notes, home, now);
     if (event) {
       if (stepGiven) event.deliveredStep = stepGiven;
+      if (keepAlive && event.kind === "stop") event.keepAlive = true;
       // Before its organization's list is known, queued without one: the sender learns the lists, then sends it there or drops it.
       writeOutbox(p, event, state.conn);
       state.lastKind = event.kind;
@@ -1268,6 +1320,7 @@ export function runHook(home, raw, now = Date.now(), flush = true) {
     }
     writeJson(hookFile, state);
     // An ended session's claims on what it was told aren't needed: AgentMingo has those marked by now, or with this event.
+    // (Its keep-listening count went with noteKeepListening.)
     if (input.hook_event_name === "SessionEnd") {
       rmSync(toldDir(p, sid), { recursive: true, force: true });
       rmSync(promptShownFile(p, sid), { force: true });
@@ -2470,7 +2523,10 @@ export async function prepareFeedback(home, raw, deps = {}) {
 /**
  * Asks AgentMingo what's waiting for a session (review results, and a workflow step when it follows one);
  * with `deliver` / `deliverStep`, records those as told. `more`: with replies on here, `listen` (in how many seconds the
- * watcher asks again: until then the thread's page offers a reply) or `deliverReply` (the reply it's taking).
+ * watcher asks again: until then the thread's page offers a reply; 0 on its last ask, as it stops listening) or
+ * `deliverReply` (the reply it's taking). To a watch's last asks (the time left, which isn't one of its paces, and 0),
+ * AgentMingo 18 and newer also answer `keepListening`: whether to keep the thread listening once the watcher's time is
+ * up (runWatch).
  */
 export async function askFeedback(config, session, deliver, deliverStep, more = {}) {
   try {
@@ -2639,6 +2695,78 @@ export function sessionWatchTimeoutS(config, hook) {
 }
 
 /**
+ * The watch hook's timeout to note for a session as SessionStart (`input`) comes: the one in Claude Code's settings now
+ * (`nowS`). But a compaction or /clear happens inside the Claude Code that's running, which keeps the hooks it started
+ * with: the lower of that and the one noted before (`state.watchTimeoutS`), so a thread started on the 20-minute hook
+ * doesn't pass for an 8-hour one after an update raised it (it would then be kept listening, a turn per 20 minutes). A
+ * thread compacted that started before this reporter noted it (no `watchTimeoutS` in its state) started before the
+ * raise, on the timeout from before it (`wasS`, as sessionWatchTimeoutS takes it). A thread started or resumed (`claude
+ * --resume`, a Claude Code of its own) has the hooks as they are now.
+ */
+export function startedWatchTimeoutS(input, state, nowS, wasS = null) {
+  const noted = state && typeof state === "object" ? state : {};
+  const before = timeoutOrNull(noted.watchTimeoutS) ?? (input.source === "compact" && !("watchTimeoutS" in noted) ? timeoutOrNull(wasS) : null);
+  if (before === null || (input.source !== "compact" && input.source !== "clear")) return nowS;
+  const now = timeoutOrNull(nowS);
+  return now === null ? before : Math.min(before, now);
+}
+
+/** A hook's timeout in seconds, or null when it isn't one (missing, not a number, or not above 0). */
+function timeoutOrNull(s) {
+  return Number.isFinite(s) && s > 0 ? s : null;
+}
+
+/**
+ * Where a thread's keep-listening state stays on this computer (reporter 18): how many times its watcher woke it to keep
+ * listening in this wait (`rearms`), and whether its next Stop ends the short turn that did it (`next`).
+ */
+function keepFile(p, sid) {
+  return join(p.state, `${sid}.keep.json`);
+}
+
+/**
+ * Keep listening's state as one hook call (`input`) moves it, for the thread `sid` (runHook); whether this call is the
+ * Stop of a short turn its watcher woke it for to keep listening (its report then says keepAlive). Its person typing in
+ * the thread, the thread starting again (but for a compaction, which a short turn can bring on) or ending starts the
+ * count again. A Stop ends the turn the watcher marked (the count stays), or any other turn: a real one, which starts
+ * the count again.
+ */
+export function noteKeepListening(p, sid, input) {
+  const event = input && typeof input === "object" ? input.hook_event_name : null;
+  const file = keepFile(p, sid);
+  if (event === "UserPromptSubmit" || event === "SessionEnd" || (event === "SessionStart" && input.source !== "compact")) {
+    rmSync(file, { force: true });
+    return false;
+  }
+  if (event !== "Stop" && event !== "StopFailure") return false;
+  const keep = readJson(file);
+  if (!keep || keep.next !== true) {
+    rmSync(file, { force: true });
+    return false;
+  }
+  writeJson(file, { ...keep, next: false });
+  return true;
+}
+
+/**
+ * At the end of a long watch that listened its whole time with replies on: whether to wake the thread to keep listening
+ * (AgentMingo's latest answer said so, `keep`; its hook's timeout is known and gives it at least
+ * KEEP_LISTENING_MIN_CAP_MS, `cap`; replies are still on here, as this computer's settings say now, not as they were
+ * 8 hours ago; and this wait woke it fewer than KEEP_LISTENING_REARMS times). If so, counts it and marks the thread's
+ * next Stop as that short turn's.
+ */
+function rearmToKeepListening(w, keep, cap) {
+  if (keep !== true || !Number.isFinite(cap) || cap < KEEP_LISTENING_MIN_CAP_MS) return false;
+  if (!repliesOn(readJson(w.p.config))) return false;
+  const file = keepFile(w.p, w.sid);
+  const kept = readJson(file) || {};
+  const rearms = Number.isInteger(kept.rearms) && kept.rearms > 0 ? kept.rearms : 0;
+  if (rearms >= KEEP_LISTENING_REARMS) return false;
+  writeJson(file, { rearms: rearms + 1, next: true, at: w.now() });
+  return true;
+}
+
+/**
  * Whether a watcher's wait is over, from this computer's state alone (no request): its person typed in the thread, or it
  * ended, since the watcher started (runHook counts both, so a later event, the turn's Stop say, can't hide them), or a
  * newer watcher took the thread over (the lock names another), or its connection was refused since (another process
@@ -2652,14 +2780,20 @@ function watchOver(w) {
   return (readJson(w.lock) || {}).id !== w.lockId;
 }
 
-/** Waits `ms` in steps of `w.checkMs`, looking at watchOver after each. Whether the wait is over (the watcher stops). */
-async function pauseWatch(w, ms) {
+/**
+ * Waits `ms` in steps of `w.checkMs`, looking at watchOver after each. Whether the wait is over (the watcher stops). Its
+ * steps are awake time: on a computer that slept through `until` (the watcher's time is up then, by the clock), it stops
+ * pausing at the next step, so the watcher makes its last ask (and keeps the thread listening) before Claude Code's
+ * timeout can stop it, not a pause's worth of minutes after it woke.
+ */
+async function pauseWatch(w, ms, until = Infinity) {
   let left = ms;
   while (left > 0) {
     const step = Math.min(left, w.checkMs);
     await w.wait(step);
     left -= step;
     if (watchOver(w)) return true;
+    if (w.now() >= until) break;
   }
   return watchOver(w);
 }
@@ -2670,7 +2804,11 @@ async function pauseWatch(w, ms) {
  * person sends from the thread's page, and returns the note to wake Claude with, or null: nothing to wait for, the person
  * typed in the thread or it ended (looked at every WATCH_CHECK_MS, on this computer), a newer reply's watcher took over,
  * or nothing came in time. It listens WATCH_FOR_MS, or WATCH_LONG_MS in a thread that follows a workflow or with replies
- * on (the automatic rounds used up don't end that: its person may say continue), and never past its hook's timeout.
+ * on (the automatic rounds used up don't end that: its person may say continue), and never past its hook's timeout. When
+ * that time is up it asks once more (with replies on, saying it stops listening now), so what came in its last minutes
+ * isn't missed; a computer that slept through that time asks it as it wakes (pauseWatch). A long watch with replies on
+ * that listened its whole time, whose latest answer says to keep listening (reporter 18), returns KEEP_LISTENING_NOTE
+ * instead of null: the thread takes one short turn, and its Stop starts a fresh watcher (rearmToKeepListening says when).
  */
 export async function runWatch(home, raw, deps = {}) {
   // Cursor's own agent would be held up to 20 minutes, or made to follow up again and again: never waited for.
@@ -2731,16 +2869,21 @@ export async function runWatch(home, raw, deps = {}) {
   };
   try {
     // Give the reply's report a moment to arrive, so AgentMingo knows the branch.
-    if (await pauseWatch(w, Math.min(every(0), 15_000))) return null;
-    while (now() - started < limitFor(long)) {
+    if (await pauseWatch(w, Math.min(every(0), 15_000), started + limitFor(long))) return null;
+    // AgentMingo's latest word on keeping the thread listening once this watcher's time is up (reporter 18).
+    let keep = false;
+    for (;;) {
       // Typed in, ended, taken over or refused (another process heard a 403) since it started: nothing to wait for.
       if (watchOver(w)) return null;
-      // Until it asks again: its pace, but never past when it stops listening.
       const elapsed = now() - started;
-      const pause = Math.max(0, Math.min(every(elapsed), limitFor(long) - elapsed));
-      // AgentMingo isn't answering: ask again once the wait is over.
+      // Its time is up: one last ask, so what came in its last minutes (a reply sent then) isn't missed.
+      const last = elapsed >= limitFor(long);
+      // Until it asks again: its pace, but never past when it stops listening; on its last ask, it stops now (0).
+      const pause = last ? 0 : Math.max(0, Math.min(every(elapsed), limitFor(long) - elapsed));
+      // AgentMingo isn't answering: ask again once the wait is over (and at its end, not at all).
       if (backingOff(p, key, now())) {
-        if (await pauseWatch(w, pause)) return null;
+        if (last) break;
+        if (await pauseWatch(w, pause, started + limitFor(long))) return null;
         continue;
       }
       // With replies on, it says when it asks next: until then the thread's page offers a reply.
@@ -2751,6 +2894,11 @@ export async function runWatch(home, raw, deps = {}) {
       // Typed in while it asked: what came goes with that message, not a wake.
       if (watchOver(w)) return null;
       const data = res.ok ? res.data : null;
+      // Whether to keep the thread listening when its time is up: the latest answer that says (AgentMingo 18 says it on a
+      // watch's last asks: the time left, and its last). One that doesn't, as from an AgentMingo before 18, leaves it as
+      // it was: no, unless an earlier one said yes. So its last ask lost (asleep as its time ran out, back online a moment
+      // later) still goes by the time left's answer, minutes old.
+      if (data && typeof data.keepListening === "boolean") keep = data.keepListening;
       // Following a workflow now (a person started one on its page): a decision there may come hours later.
       if (data && data.following) long = true;
       // A reply its person sent from the thread's page: the thread wakes with it, and with what was waiting.
@@ -2791,8 +2939,13 @@ export async function runWatch(home, raw, deps = {}) {
           return null;
         }
       }
-      if (await pauseWatch(w, pause)) return null;
+      // That was its last ask (unless the thread started following a workflow just now, which gives it longer).
+      if (last && now() - started >= limitFor(long)) break;
+      if (await pauseWatch(w, pause, started + limitFor(long))) return null;
     }
+    // It listened its whole long watch with replies on: AgentMingo's latest word may say to keep the thread listening,
+    // with one short turn whose Stop starts a fresh watcher. Not when its person typed or it ended just now.
+    if (long && replies && !watchOver(w) && rearmToKeepListening(w, keep, cap)) return KEEP_LISTENING_NOTE;
     return null;
   } finally {
     try {
@@ -4703,7 +4856,11 @@ export function watchLine(config, timeoutS = watchHookTimeoutS(config)) {
     config && config.watchTimeoutRaisedAt
       ? ` An update raised its hook's timeout on ${when(config.watchTimeoutRaisedAt)}: sessions that were already open keep the timeout they started with (${Math.round((config.watchTimeoutWas || 1200) / 60)} minutes) until you restart them, and Claude Code may say their hooks changed.`
       : "";
-  return `After a reply, the watcher listens up to 8 hours ${long}${replies ? "" : " in a thread that follows a workflow"}, and 18 minutes otherwise for review results; it stops when you type in the thread or it ends, and the thread's next reply starts a new one.${how}`;
+  // Keep listening (reporter 18) goes with replies: AgentMingo's setting decides it, thread by thread.
+  const keep = replies
+    ? ` With "Keep threads listening while their work is open" on in AgentMingo (it is by default), a thread that waits for you on an open task, pull request or workflow run takes one short turn as those 8 hours end, to listen again, for up to a week, while this computer stays on and awake; each one re-reads the conversation, so it uses tokens.`
+    : "";
+  return `After a reply, the watcher listens up to 8 hours ${long}${replies ? "" : " in a thread that follows a workflow"}, and 18 minutes otherwise for review results; it stops when you type in the thread or it ends, and the thread's next reply starts a new one.${keep}${how}`;
 }
 
 /** After sending: launch.mjs in place, the watch hook's timeout, and the version AgentMingo's last answer asked for. Never throws. */
