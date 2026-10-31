@@ -14,7 +14,7 @@ Please don't access or change other people's data, disrupt the service, or make 
 
 This repository holds the reporter that runs on people's computers: `reporter.mjs`, and the `launch.mjs` and `reporter.sh` it writes into `~/.agentmingo` (their text is in `reporter.mjs`: the `LAUNCHER` constant and `shimText()`). Reports about the AgentMingo service itself, which is closed source, go to the same address.
 
-From version 14 that includes answering permission prompts from AgentMingo (`approvals`, off unless a person turns it on): how it's turned on, what a prompt sends, and the checks the reporter makes before it applies an answer, such as an answer applied to a prompt it wasn't made for, Allow offered for a file that can run code or change settings, or a secret in a path or command that masking should have caught. It also includes the task folders `start` and the `start_task` tool make, and which `.env` files they copy. The page that shows a prompt and takes the answer is part of the service; report it to the same address.
+From version 14 that includes answering permission prompts from AgentMingo (`approvals`, off unless a person turns it on): how it's turned on, what a prompt sends, and the checks the reporter makes before it applies an answer, such as an answer applied to a prompt it wasn't made for, or a secret in a path or command that masking should have caught. (In 14 to 16, Allow offered for a file that can run code or change settings was in scope too; from 17 that is allowed on purpose, with a badge: see below.) It also includes the task folders `start` and the `start_task` tool make, and which `.env` files they copy. The page that shows a prompt and takes the answer is part of the service; report it to the same address.
 
 From version 15 it also includes:
 
@@ -32,6 +32,18 @@ From version 16, install's `--approvals` turns answering prompts and replies on 
 - a way to get past `approvals on`'s checks (a typed yes, in a real terminal, outside Claude Code's Bash tool), such as a coding agent or a script without a terminal turning it on with it. A program on the computer that sets out to fake a terminal is a known limit, not a finding.
 
 Known limits, not findings: whoever runs a command made with the box ticked while its code is unused turns it on, you or the coding agent you gave it to, as they run everything else in the command; and a command pasted into a thread stays in that conversation, with a code that works until it's used or its 15 minutes are up. How a code is made, which box it records, that it works once for 15 minutes, and that only its hash is kept are part of the service; report them to the same address.
+
+From version 17, with answering prompts on, every prompt in a thread's main conversation that Claude Code hands its `PermissionRequest` hook opens on AgentMingo (file edits anywhere, commands, MCP and other tools, questions and plans), and can be answered there with the terminal's answers: Yes, "Yes, and don't ask again" for the session, or No. In scope:
+
+- an answer the reporter applies when it shouldn't: one not made for that prompt (its HMAC), older than two minutes, for a prompt that shows something other than what the page showed, or after the prompt was answered in the terminal;
+- "don't ask again" applying anything but Claude Code's own suggestions for that prompt, as the computer read them; applying a mode other than `acceptEdits`, `default`, `plan` or `auto`; applying a rule or folder the page didn't list exactly as applied; or reaching a destination other than the session (being written to a settings file);
+- a question's answers reaching the agent other than as picked or typed, or a plan approved with input other than its own;
+- a badge missing where it should be, such as a path outside the repository, a file in Claude Code's or another agent's settings, or one that can run code by itself not marked so, or a path that doesn't lead straight to its file not marked `indirect`;
+- something a prompt carries that the page doesn't show and doesn't say was cut, such as a field of a tool's input left out of its one-line summary;
+- a secret that masking should have caught in a command, its description, a tool's input, a question or a plan;
+- `--commands`, or anything left in `config.json` by an earlier version, changing what 17 shares, or a computer turning it on without the setup command's code made with the box ticked or `approvals on`.
+
+Known limits, not findings: anyone signed in to AgentMingo as you (you, someone who gets into your account, or an agent with a browser signed in as you) can allow what your agent asks to run on your computer, including commands and changes to Claude Code's settings, since a signed-in session is enough from 17; an update to 17 on a computer where answering prompts was on for file edits only shares every prompt without asking again; what the page shows is cut at its limits (a command at 20 lines or 1,000 characters, a tool's input at 300, a plan at 20,000) while Yes allows the whole call, with a badge that says it was cut; masking is best effort; a subagent's prompt, and dialogs Claude Code doesn't hand to its `PermissionRequest` hook, are answered in the terminal only; in a terminal, a prompt (a question or a plan included) waits only once Claude Code says it's on screen within 20 seconds. Who can answer, that answers go only through the page, the audit log entry and the thread's history, and emails about new sign-ins are part of the service; report them to the same address.
 
 ## Supported versions
 

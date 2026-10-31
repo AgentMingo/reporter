@@ -73,33 +73,42 @@
  * terminal could get past them. AgentMingo's website and servers can't turn it on by themselves: the setup command
  * carries the flag, and you run it, or give it to your coding agent to run
  * (it already downloads and runs this script); an update of this reporter can change anything it does, as it always
- * could (turn updates off with `auto-update off`). Once it's on, when a session started since stops on a permission
- * prompt, Claude Code's prompt stays on screen as always, and the hook also opens the prompt on the thread's page in
- * AgentMingo and waits up to the time you chose (an hour unless you say otherwise) for your answer there; whichever is
- * answered first counts.
+ * could (turn updates off with `auto-update off`). Once it's on, when a session started since stops on a prompt (a
+ * permission for any tool: a file edit, a command, an MCP or other tool; a question; a plan to approve), Claude Code's
+ * prompt stays on screen as always, and the hook also opens the prompt on the thread's page in AgentMingo and waits up
+ * to the time you chose (an hour unless you say otherwise) for your answer there, with the same answers as the
+ * terminal; whichever is answered first counts.
  * For that prompt it sends the tool's name, a random id, an HMAC that ties an answer to this prompt (made with a key
- * that never leaves this computer), a hash of what it shows, how long it will wait, and for a file change, the file's
- * path in the repository (masked like a title) with how many lines it adds and removes, never the change itself; with
- * --commands, a command, masked. While it waits it asks AgentMingo for an answer every 3 seconds for two minutes, then
- * every 10, and says when it stops waiting. Allow applies to that one call (never an "always allow" rule), and only for
- * a file inside the repository that can't run code or change settings by itself; a command or another tool can only be
- * denied there. It waits only in a thread's main conversation (not a subagent's), not in a headless run, not on a
- * Claude Code version known to misbehave (none so far), and in a terminal only once Claude Code says the prompt is on
- * screen (within 20 seconds; else it leaves the prompt to the terminal at once): that notice is the guard. Claude Code
- * doesn't document that a hook can wait while its prompt stays usable, so a release of it could change that; in its VS
- * Code extension and desktop app, which send no such notice, Claude Code shows its prompt and runs the hook at the same
- * time. When Claude Code stops the hook, it tells AgentMingo it stopped waiting. Someone who controls AgentMingo's
- * servers or database could answer for you. `approvals off` turns it off.
+ * that never leaves this computer), a hash of what it shows, how long it will wait, and what it wants, masked like a
+ * title: for a file change, the file's path (from the repository's top, or as given outside it, from ~ in your home
+ * folder) with how many lines it adds and removes, never the change itself; for a command, the command (20 lines and
+ * 1,000 characters at most) and its description; for an MCP or other tool, its MCP server and tool, and its input
+ * (every field it carries) in one line of at most 300 characters; for a question, its questions and options; for a
+ * plan, the plan (at most 20,000 characters); what kind of thing it is (outside the repository, Claude Code's settings,
+ * a file that can run code by itself, a command, characters that don't show); and what Claude Code's "don't ask again"
+ * would allow (offered only when every rule and folder it adds can be shown whole). While it waits it asks
+ * AgentMingo for an answer every 3 seconds for two minutes, then every 10, and says when it stops waiting. Anything can
+ * be allowed there, as in the terminal (a deny rule in your Claude Code settings still wins): Yes applies to that one
+ * call; "Yes, and don't ask again" applies Claude Code's own suggestions for this prompt, for the rest of this session
+ * only (never written to a settings file); No denies it, with your note quoted to Claude as your words. A question's
+ * answers and a plan's approval reach Claude as the tool's input. It waits only in a thread's main conversation (not a
+ * subagent's), not in a headless run, not on a Claude Code version known to misbehave (none so far), and in a terminal
+ * only once Claude Code says the prompt is on screen (within 20 seconds; else it leaves the prompt to the terminal at
+ * once): that notice is the guard. Claude Code doesn't document that a hook can wait while its prompt stays usable in
+ * a terminal, so a release of it could change that; in its VS Code extension and desktop app, which send no such
+ * notice, Claude Code shows its prompt and runs the hook at the same time, and takes whichever answers first. When
+ * Claude Code stops the hook, it tells AgentMingo it stopped waiting. Someone who gets into your AgentMingo account
+ * could allow what your agent asks to run on this computer, and someone who controls AgentMingo's servers or database
+ * could answer for you. `approvals off` turns it off.
  *
  * With it on, a thread that finishes its turn and waits for you can also be answered from its page in AgentMingo
  * (Continue, Yes, No, or up to 1,000 characters of your own): the watcher below listens up to 8 hours after each reply,
  * and when you send one, it takes it (once: it's claimed on this computer and on AgentMingo) and wakes the thread with
  * it, introduced as your reply, with what your next message would have carried (the next workflow step, review results).
  * For that, each report also says replies are on here, and the watcher says when it asks next. Only you can send one,
- * signed in as yourself in that browser within the last day; someone who gets into your AgentMingo account could send
- * your threads a reply, and a command a thread then wants to run still needs your terminal (AgentMingo can only deny
- * commands). A reply is for the turn it answers: typing in the thread first, the thread ending, or the thread going on
- * without it (woken for something else) cancels it.
+ * signed in as yourself; someone who gets into your AgentMingo account could send your threads a reply, and allow what
+ * they then ask to run. A reply is for the turn it answers: typing in the thread first, the thread ending, or the
+ * thread going on without it (woken for something else) cancels it.
  *
  * On a workflow (below), it also sends whether a step Claude reports is done or failed, and what Claude writes when it reports a step (for the plan step, the plan
  * itself, with the repositories it names and whether it needs an end-to-end test, and why; AgentMingo masks the same
@@ -114,8 +123,8 @@
  * on uninstall, it asks AgentMingo to disconnect that one. Updating downloads the new script without its token and
  * without anything about you or your threads. It doesn't send your code or other files (unless Claude attaches one to
  * a step), the commands Claude runs (only their kind, and git's subcommand, are counted), tool input, or the rest of
- * the conversation, except, with answering prompts from AgentMingo turned on here (above), a waiting prompt's file path
- * and line counts and, with commands shown, its command, masked.
+ * the conversation, except, with answering prompts from AgentMingo turned on here (above), what a waiting prompt wants,
+ * masked: a file's path and line counts, a command, a tool's input in one line, a question, a plan.
  *
  * With --reviews it also brings review results back: when a review bot (CodeRabbit, say) or CI's check runs report on
  * the pull request for a session's branch, AgentMingo decides what blocks and what to fix now, and the session gets
@@ -196,8 +205,9 @@
  *
  * Otherwise it never changes what Claude does: hooks exit 0 (but the watch, which exits 2 when it wakes Claude: that
  * exit code is how Claude Code's asyncRewake takes its note), the only things it prints are those notes
- * (when turned on) and, with answering prompts from AgentMingo turned on here, your answer to a permission prompt
- * from there and your reply to a thread from there, and sending happens in a separate background process. Events wait in
+ * (when turned on) and, with answering prompts from AgentMingo turned on here, your answer to a prompt from there
+ * (with a question's answers, or Claude Code's "don't ask again" suggestions for the session, when you chose those)
+ * and your reply to a thread from there, and sending happens in a separate background process. Events wait in
  * ~/.agentmingo/outbox until they're delivered. When AgentMingo doesn't answer, a hook waits a second for it
  * at most (and hooks look nothing up there for the next minute), and the reporter stops asking and sending for a
  * while (30 seconds, doubling up to 10 minutes, or
@@ -237,7 +247,7 @@
  *                     [--repos a,b] [--e2e yes|no --e2e-reason "why"]        a plan's decisions, and files to
  *                     [--attach <files or folders>]                          attach (videos, screenshots, reports)
  *   node reporter.mjs auto-update on|off                                     updating itself
- *   node reporter.mjs approvals on [--commands] [--wait 1h] | off | status   answering permission prompts, and
+ *   node reporter.mjs approvals on [--wait 1h] | off | status                answering prompts, and
  *                                                                            replies, from AgentMingo (`approvals on`
  *                                                                            only in your own terminal; the setup
  *                                                                            command's box turns it on wherever
@@ -282,7 +292,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "16";
+export const VERSION = "17";
 const SCRIPT = fileURLToPath(import.meta.url);
 
 /** Hooks this reporter installs. PostToolUse is only a heartbeat, so it runs without making Claude wait. */
@@ -916,7 +926,7 @@ export function hookToEvent(input, state, options) {
       break;
     case "PermissionRequest":
       kind = "needs_you";
-      detail = typeof input.tool_name === "string" && input.tool_name ? `Permission to use ${input.tool_name.slice(0, 60)}` : "Permission needed";
+      detail = permissionDetail(input);
       break;
     case "Notification": {
       const type = input.notification_type;
@@ -950,6 +960,16 @@ export function hookToEvent(input, state, options) {
   if (busyMs) event.busyMs = busyMs;
   if (detail) event.detail = detail;
   return event;
+}
+
+/**
+ * What a waiting thread's PermissionRequest says it waits for: a question, a plan to approve, or permission for a tool
+ * (by its name only), and whether a subagent asks (its prompts are answered in the thread only).
+ */
+export function permissionDetail(input) {
+  const tool = typeof input.tool_name === "string" ? input.tool_name.slice(0, 60) : "";
+  const what = tool === "AskUserQuestion" ? "Has a question for you" : tool === "ExitPlanMode" ? "Has a plan for you to approve" : tool ? `Permission to use ${tool}` : "Permission needed";
+  return input.agent_id ? `${what} (from a subagent)` : what;
 }
 
 /** Text masked before it's cut to length: a message's first line can be very long, and masking it whole isn't needed. */
@@ -2794,8 +2814,11 @@ export async function runWatch(home, raw, deps = {}) {
 export const APPROVAL_WAIT_DEFAULT_S = 3600;
 export const APPROVAL_WAIT_MIN_S = 300;
 export const APPROVAL_WAIT_MAX_S = 8 * 3600;
-/** Tools whose prompts are questions or a plan to approve, not permissions: no request is opened for them. */
-const NOT_PERMISSIONS = new Set(["AskUserQuestion", "ExitPlanMode"]);
+/** Claude Code's tool that asks the person questions, and the one that asks them to approve a plan. */
+const QUESTION_TOOL = "AskUserQuestion";
+const PLAN_TOOL = "ExitPlanMode";
+/** Claude Code's tools that change one file. */
+const FILE_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 /**
  * Claude Code versions known to misbehave while this hook waits (a prompt that stops taking keys, say): on these a hook
  * only reports the prompt, as before. None so far; a release adds one when one is found. In a terminal, the guard on
@@ -2822,11 +2845,31 @@ export const ANSWER_MAX_AGE_S = 120;
 const APPROVAL_FETCH_TIMEOUT_MS = 5_000;
 /** How long the hook asks again for a thread whose first report hasn't reached AgentMingo yet. */
 const OPEN_RETRY_MS = 15_000;
-/** A command is shown whole only up to this long; Allow is never offered for a command in this version. */
+/** A command (or another tool's input) is shown whole only up to this long; the rest shows only in the terminal. */
 const MAX_COMMAND_CHARS = 1_000;
 const MAX_COMMAND_LINES = 20;
 /** Commands longer than this aren't masked whole (the rest shows only in the terminal anyway). */
 const MAX_COMMAND_SCANNED = 100_000;
+/** Another tool's input, summed up in one line of at most this many characters. */
+const MAX_SUMMARY_CHARS = 300;
+/** A plan is shown up to this long (the rest only in the terminal). */
+export const MAX_PLAN_CHARS = 20_000;
+/** A question's text, an option's label and its description, shown up to these lengths; at most this many of each. */
+const MAX_QUESTION_CHARS = 500;
+const MAX_OPTION_CHARS = 200;
+const MAX_OPTION_DESCRIPTION_CHARS = 500;
+const MAX_QUESTIONS = 4;
+const MAX_OPTIONS = 10;
+/** An answer typed under "Other" for a question, at most this long. */
+const MAX_OTHER_CHARS = 1_000;
+/**
+ * The most rules, folders and modes in all a "don't ask again" option applies (with more it isn't offered), and the
+ * longest rule it shows (a longer one isn't offered either: every entry is shown whole).
+ */
+const MAX_SUGGESTIONS = 10;
+const MAX_RULE_CHARS = 200;
+/** Permission modes a suggestion may switch the session to from AgentMingo (never bypassPermissions or dontAsk). */
+const SESSION_MODES = new Set(["acceptEdits", "default", "plan", "auto"]);
 /** Files read to count lines (a replaced file, or how often a replace-all matches), at most this big. */
 const MAX_COUNTED_BYTES = 5_000_000;
 /** Control characters (but newline and tab), direction overrides and zero-width characters: text that doesn't show as it is. */
@@ -2835,8 +2878,8 @@ const HIDDEN_ALL = new RegExp(HIDDEN.source, "g");
 /**
  * Folders and files a write to can run code or change settings by itself, without another prompt, or that the build
  * and test commands already allowed run (CI, git and editor settings, package scripts and task runners, direnv and
- * mise, git hook managers, Python's and Rust's build and test set-up, an agent's instructions): Allow is never
- * offered for them. Compared without case.
+ * mise, git hook managers, Python's and Rust's build and test set-up, an agent's instructions): a prompt to change
+ * one says so on AgentMingo (a badge), and can still be allowed there. Compared without case.
  */
 const PROTECTED_FOLDERS = new Set([
   ".git",
@@ -2914,6 +2957,15 @@ const PROTECTED_FILES = new Set([
   "azure-pipelines.yml",
   "bitbucket-pipelines.yml",
 ]);
+/** Of those, the ones that set up Claude Code or another coding agent (its settings, hooks, MCP servers, instructions). */
+const AGENT_FOLDERS = new Set([".claude", ".cursor", ".agentmingo"]);
+const AGENT_FILES = new Set([".mcp.json", "claude.md", "claude.local.md", "agents.md", ".cursorrules"]);
+/**
+ * What AgentMingo can say about a prompt (badges on its card), as codes its page words: outside the repository, changes
+ * Claude Code's or an agent's settings, a file that can run code by itself, characters that don't show as they are,
+ * partly masked, a path that doesn't lead straight to its file, runs a command, shown cut, an MCP server's tool.
+ */
+export const BADGES = ["outside_repo", "settings", "runs_code", "hidden_chars", "masked", "indirect", "command", "cut", "mcp"];
 
 /** How often a waiting hook asks AgentMingo for an answer, `elapsed` after it started: every 3 seconds for two minutes, then every 10. */
 export function approvalEveryMs(elapsed) {
@@ -2981,11 +3033,15 @@ export function bindOf(key, sid, requestId, toolName, toolInput) {
   return createHmac("sha256", String(key)).update([sid, requestId, toolName, canonicalJson(toolInput === undefined ? null : toolInput)].join("\0")).digest("hex");
 }
 
-/** The hash of what a request shows (tool, kind, preview, line counts): AgentMingo's previewHashOf makes the same one. */
+/**
+ * The hash of what a request shows (tool, kind, preview, line counts, and from reporter 17 its details: badges, the
+ * input summed up, a question's options, a plan, what "don't ask again" would allow): AgentMingo's previewHashOf makes
+ * the same one.
+ */
 export function previewHashOf(t) {
-  return createHash("sha256")
-    .update([t.toolName, t.kind, t.preview ?? "", t.added ?? "", t.removed ?? ""].join("\n"))
-    .digest("hex");
+  const parts = [t.toolName, t.kind, t.preview ?? "", t.added ?? "", t.removed ?? ""];
+  if (t.details) parts.push(canonicalJson(t.details));
+  return createHash("sha256").update(parts.join("\n")).digest("hex");
 }
 
 /** Lines in a text, as an editor counts them (a last line without a newline counts). */
@@ -3052,6 +3108,14 @@ function realTop(cwd) {
  * in a protected folder, a protected file, an .env file, or in the folder git runs hooks from (core.hooksPath).
  */
 export function isProtectedPath(rel, hooksRel = null) {
+  return protectedKind(rel, hooksRel) !== null;
+}
+
+/**
+ * Which kind of protected file `rel` is (isProtectedPath): "settings" for one that sets up Claude Code or another
+ * coding agent (.claude, .mcp.json, CLAUDE.md, AGENTS.md and the like), "runs_code" for the rest; null for neither.
+ */
+export function protectedKind(rel, hooksRel = null) {
   // Each name as Windows opens it: without trailing dots and spaces, and without a stream after a colon
   // ("package.json.", "package.json::$DATA" are package.json there). Elsewhere that only protects more.
   const parts = String(rel)
@@ -3061,46 +3125,122 @@ export function isProtectedPath(rel, hooksRel = null) {
     .map((part) => part.split(":")[0].replace(/[. ]+$/, ""))
     .filter(Boolean);
   const name = parts[parts.length - 1] || "";
-  if (parts.slice(0, -1).some((d) => PROTECTED_FOLDERS.has(d)) || PROTECTED_FOLDERS.has(name)) return true;
-  if (PROTECTED_FILES.has(name) || name === ".env" || name.startsWith(".env.")) return true;
+  if (parts.some((d) => AGENT_FOLDERS.has(d)) || AGENT_FILES.has(name)) return "settings";
+  if (parts.slice(0, -1).some((d) => PROTECTED_FOLDERS.has(d)) || PROTECTED_FOLDERS.has(name)) return "runs_code";
+  if (PROTECTED_FILES.has(name) || name === ".env" || name.startsWith(".env.")) return "runs_code";
   if (hooksRel) {
     const hooks = String(hooksRel).normalize("NFC").toLowerCase().split(/[\\/]+/).filter(Boolean);
-    if (hooks.length && hooks.every((h, i) => parts[i] === h)) return true;
+    if (hooks.length && hooks.every((h, i) => parts[i] === h)) return "runs_code";
   }
-  return false;
+  return null;
+}
+
+/** Files right in the home folder a write to can run code by itself (a shell's startup files, git's settings). */
+const HOME_RUNS_CODE_FILES = new Set([
+  ".zshrc",
+  ".zshenv",
+  ".zprofile",
+  ".zlogin",
+  ".zlogout",
+  ".bashrc",
+  ".bash_profile",
+  ".bash_login",
+  ".bash_logout",
+  ".profile",
+  ".kshrc",
+  ".cshrc",
+  ".tcshrc",
+  ".gitconfig",
+]);
+/** Folders in the home folder (from it, lowercase) a file written in can run code by itself: ssh's, login agents', programs on the PATH. */
+const HOME_RUNS_CODE_FOLDERS = [[".ssh"], ["library", "launchagents"], [".config", "autostart"], [".config", "systemd"], [".config", "fish"], [".config", "git"], [".local", "bin"], ["bin"]];
+/** Claude Code's own settings file right in the home folder (its MCP servers, among others). */
+const HOME_SETTINGS_FILES = new Set([".claude.json"]);
+
+/**
+ * Which kind of protected file an absolute path in the home folder but outside the repository is: protectedKind's
+ * kinds from the home folder (~/.claude/settings.json is "settings", ~/other/package.json "runs_code"), Claude Code's
+ * ~/.claude.json, and the home folder's own startup files and folders (~/.zshrc, ~/.ssh/…, ~/Library/LaunchAgents/…).
+ * Null for none, or for a path not in the home folder.
+ */
+export function homeKind(file, platform = process.platform) {
+  const home = homedir();
+  if (!home || typeof file !== "string" || !isAbsolute(file)) return null;
+  const sep = platform === "win32" ? "\\" : "/";
+  const top = comparable(home, platform);
+  const inside = top.endsWith(sep) ? top : `${top}${sep}`;
+  const full = comparable(resolve(file), platform);
+  if (!full.startsWith(inside)) return null;
+  const rel = full.slice(inside.length);
+  const kind = protectedKind(rel);
+  if (kind) return kind;
+  const parts = rel.toLowerCase().split(/[\\/]+/).filter(Boolean);
+  if (parts.length === 1 && HOME_SETTINGS_FILES.has(parts[0])) return "settings";
+  if (parts.length === 1 && HOME_RUNS_CODE_FILES.has(parts[0])) return "runs_code";
+  if (HOME_RUNS_CODE_FOLDERS.some((f) => parts.length > f.length && f.every((p, i) => parts[i] === p))) return "runs_code";
+  return null;
 }
 
 /**
- * What a file prompt shows, and whether Allow can be offered for it: { preview, canAllow, why }. Only a path that's
- * absolute and, through any links, inside the session's repository is sent (from the repository's top, masked like a
- * title); one with characters that don't show as they are, one masking changed, one a write to can run code by
- * itself (isProtectedPath), or one that doesn't lead straight to its file (indirectPath) gets Deny only.
+ * A path outside the repository as AgentMingo shows it: from the home folder ("~/…") when it's in it, characters that
+ * don't show written out, masked. `badges` gets "masked" when masking changed it.
+ */
+function outsidePath(file, badges) {
+  const home = homedir();
+  const text = String(file);
+  const shown = visible(home && (text === home || text.startsWith(`${home}/`) || text.startsWith(`${home}\\`)) ? `~${text.slice(home.length)}` : text);
+  const masked = maskPersonal(shown);
+  if (masked !== shown) badges.push("masked");
+  return masked;
+}
+
+/**
+ * What a file prompt shows: { preview, badges }. The path from the repository's top for a file inside it (through
+ * any links), masked like a title; any other path as it was given (from "~" in the home folder), masked, marked
+ * outside the repository. Badges say what it is: outside the repository, a file that changes Claude Code's or an
+ * agent's settings or can run code by itself (protectedKind; homeKind for one outside it in the home folder, such as
+ * ~/.claude/settings.json or ~/.zshrc), a path with characters that don't show as they are
+ * (written out), one masking changed, one that doesn't lead straight to its file (indirectPath). Any of them can be
+ * allowed from AgentMingo, as in the terminal.
  */
 export function fileTarget(file, cwd, platform = process.platform) {
-  if (typeof file !== "string" || !file || !isAbsolute(file)) return { preview: null, canAllow: false, why: "outside_repo" };
+  if (typeof file !== "string" || !file) return { preview: null, badges: ["outside_repo"] };
+  const badges = ["outside_repo"];
+  if (HIDDEN.test(file)) badges.push("hidden_chars");
+  if (!isAbsolute(file)) return { preview: outsidePath(file, badges), badges };
   const top = realTop(cwd);
   const real = realPathOf(resolve(file));
-  if (!top || !real) return { preview: null, canAllow: false, why: "outside_repo" };
   const sep = platform === "win32" ? "\\" : "/";
-  const a = comparable(top, platform);
-  const inside = a.endsWith(sep) ? a : `${a}${sep}`;
-  if (!comparable(real, platform).startsWith(inside)) return { preview: null, canAllow: false, why: "outside_repo" };
+  const a = top ? comparable(top, platform) : null;
+  const inside = a ? (a.endsWith(sep) ? a : `${a}${sep}`) : null;
+  if (!real || !inside || !comparable(real, platform).startsWith(inside)) {
+    // Through a link that leads nowhere yet, with "." or ".." in it, or a file with another name: not straight to where it says.
+    // Or one in the repository by its name that a link takes out of it.
+    if (!real || indirectPath(file, real) || (inside && comparable(resolve(file), platform).startsWith(inside))) badges.push("indirect");
+    // In the home folder: Claude Code's settings there, or a file that runs code by itself (~/.zshrc), says so too.
+    const kind = homeKind(file, platform) || (real ? homeKind(real, platform) : null);
+    if (kind) badges.push(kind);
+    return { preview: outsidePath(file, badges), badges };
+  }
   const rel = fromTop(top, real);
-  const preview = maskPersonal(visible(rel));
-  if (HIDDEN.test(rel)) return { preview, canAllow: false, why: "hidden_chars" };
+  const shown = visible(rel);
+  const preview = maskPersonal(shown);
+  const marks = [];
   const hooksPath = git(cwd, ["config", "--get", "core.hooksPath"]);
   const hooksReal = hooksPath ? realPathOf(resolve(top, hooksPath)) : null;
   const hooksRel = hooksReal && comparable(hooksReal, platform).startsWith(inside) ? fromTop(top, hooksReal) : null;
-  if (isProtectedPath(rel, hooksRel)) return { preview, canAllow: false, why: "protected" };
-  if (indirectPath(file, real)) return { preview, canAllow: false, why: "indirect" };
-  if (preview !== rel) return { preview, canAllow: false, why: "masked" };
-  return { preview, canAllow: true, why: null };
+  const kind = protectedKind(rel, hooksRel);
+  if (kind) marks.push(kind);
+  if (HIDDEN.test(rel)) marks.push("hidden_chars");
+  if (indirectPath(file, real)) marks.push("indirect");
+  if (preview !== shown) marks.push("masked");
+  return { preview, badges: marks };
 }
 
 /**
  * Whether a path doesn't lead straight to its file: it has "." or ".." in it (this judges it as text, as Claude Code
  * 2.1.98 does before it writes, but a later version might not), or the file has another name somewhere (a hard link,
- * which a real path doesn't show, could be ~/.zshrc). Allow is never offered for those.
+ * which a real path doesn't show, could be ~/.zshrc). A prompt for one says so on AgentMingo.
  */
 export function indirectPath(file, real) {
   if (String(file).split(/[\\/]/).some((part) => part === "." || part === "..")) return true;
@@ -3127,19 +3267,189 @@ function editCounts(file, edit) {
 }
 
 /**
- * What a waiting prompt shows on AgentMingo, or null for one that opens no request (a question, a plan to approve):
- * { toolName, kind, preview, added, removed, canAllow, why }. A file change shows its path in the repository and how
- * many lines it adds and removes, never the change itself. A command shows, masked, only when commands are on here
- * (`commands`), and is answered with Deny only: allowing a command from AgentMingo isn't offered in this version.
- * Other tools show their name only.
+ * Text as AgentMingo shows it: characters that don't show written out, masked, cut to `max` with "…". `badges` gets
+ * "hidden_chars" when it had characters that don't show, and "masked" when masking changed it.
+ */
+function shownText(text, max, badges = null) {
+  const written = visible(String(text));
+  const masked = maskPersonal(written.slice(0, max * 2));
+  if (badges && HIDDEN.test(String(text))) badges.push("hidden_chars");
+  if (badges && masked !== written.slice(0, max * 2)) badges.push("masked");
+  return masked.length > max ? `${masked.slice(0, max - 1)}…` : masked;
+}
+
+/** The input fields that say best what a tool call does, in the order looked for (a URL, a search, a path, a description). */
+const SUMMARY_FIELDS = ["command", "url", "query", "pattern", "path", "file_path", "notebook_path", "description", "prompt", "subject", "title", "name"];
+
+/** Whether an input field carries something (not missing, null, "", [] or {}): one the person should see. */
+function filled(value) {
+  if (value === undefined || value === null || value === "") return false;
+  if (Array.isArray(value)) return value.length > 0;
+  return typeof value !== "object" || Object.keys(value).length > 0;
+}
+
+/**
+ * A tool's input summed up on one line (at most MAX_SUMMARY_CHARS, masked): the field that says what it does
+ * ("https://…") when it's the only one filled, else every filled field as compact JSON, that field first ({"title":
+ * …,"body":…,"owner":…}), so nothing the call carries is hidden behind one field. `badges` gets "hidden_chars",
+ * "masked" and "cut" when they apply.
+ */
+export function inputSummary(toolInput, badges = []) {
+  const ti = toolInput && typeof toolInput === "object" && !Array.isArray(toolInput) ? toolInput : {};
+  const keys = Object.keys(ti)
+    .filter((k) => filled(ti[k]))
+    .sort();
+  if (!keys.length) return null;
+  const field = SUMMARY_FIELDS.find((f) => typeof ti[f] === "string" && ti[f].trim());
+  const ordered = field ? [field, ...keys.filter((k) => k !== field)] : keys;
+  const text = field && keys.length === 1 ? ti[field] : `{${ordered.map((k) => `${JSON.stringify(k)}:${canonicalJson(ti[k])}`).join(",")}}`;
+  const raw = text.replace(/\s+/g, " ").trim().slice(0, MAX_COMMAND_SCANNED);
+  const shown = shownText(raw, MAX_SUMMARY_CHARS, badges);
+  if (shown.length < raw.length && shown.endsWith("…")) badges.push("cut");
+  return shown;
+}
+
+/**
+ * An MCP tool's server and tool, from its name ("mcp__github__create_issue" → github, create_issue), or null for
+ * another tool.
+ */
+export function mcpParts(toolName) {
+  const m = /^mcp__(.+?)__(.+)$/.exec(String(toolName));
+  return m ? { server: shownText(m[1], 120), tool: shownText(m[2], 120) } : null;
+}
+
+/**
+ * A question's questions as AgentMingo shows them (AskUserQuestion's input): each one's header, text, whether more
+ * than one answer can be picked, and its options (label and description), masked and cut. Null when it has none.
+ */
+export function questionsOf(toolInput, badges = []) {
+  const list = toolInput && Array.isArray(toolInput.questions) ? toolInput.questions : [];
+  const out = questionList(toolInput).map((q) => ({
+    header: typeof q.header === "string" ? shownText(q.header, 60, badges) : null,
+    question: shownText(q.question, MAX_QUESTION_CHARS, badges),
+    multiSelect: q.multiSelect === true,
+    options: q.options.map((o) => ({ label: shownText(o.label, MAX_OPTION_CHARS, badges), description: typeof o.description === "string" && o.description ? shownText(o.description, MAX_OPTION_DESCRIPTION_CHARS, badges) : null })),
+  }));
+  if (list.length > out.length) badges.push("cut");
+  return out.length ? out : null;
+}
+
+/** AskUserQuestion's questions as they're numbered on AgentMingo (questionsOf), as Claude asked them: an answer picks by number. */
+function questionList(toolInput) {
+  const list = toolInput && Array.isArray(toolInput.questions) ? toolInput.questions : [];
+  return list
+    .filter((q) => q && typeof q === "object" && typeof q.question === "string")
+    .slice(0, MAX_QUESTIONS)
+    .map((q) => ({ ...q, options: (Array.isArray(q.options) ? q.options : []).filter((o) => o && typeof o === "object" && typeof o.label === "string").slice(0, MAX_OPTIONS) }));
+}
+
+/**
+ * The question's input with the person's answers from AgentMingo (AskUserQuestion's `answers`: each question's text
+ * to the label picked, several joined with ", ", or what they typed under "Other"), or null when the answers don't
+ * fit these questions: one per question, picks by number among its options, one pick unless it takes several, text
+ * under "Other" of at most MAX_OTHER_CHARS. Every question gets an answer.
+ */
+export function answeredInput(toolInput, answers) {
+  const questions = questionList(toolInput);
+  if (!questions.length || !Array.isArray(answers) || answers.length !== questions.length) return null;
+  const out = {};
+  for (const [i, q] of questions.entries()) {
+    const a = answers[i];
+    if (!a || typeof a !== "object") return null;
+    const picks = Array.isArray(a.picks) ? a.picks : [];
+    if (!picks.every((n) => Number.isInteger(n) && n >= 0 && n < q.options.length) || new Set(picks).size !== picks.length) return null;
+    const other = typeof a.other === "string" ? a.other.replace(/\s+/g, " ").trim() : "";
+    if (other.length > MAX_OTHER_CHARS) return null;
+    const chosen = [...picks.map((n) => q.options[n].label), ...(other ? [other] : [])];
+    if (!chosen.length || (q.multiSelect !== true && chosen.length > 1)) return null;
+    out[q.question] = chosen.join(", ");
+  }
+  return { ...toolInput, answers: out };
+}
+
+/**
+ * Claude Code's permission suggestions for this prompt (the hook's permission_suggestions) that a "don't ask again"
+ * answer from AgentMingo may apply, each for this session only: { apply, shown }. `apply` is what the hook would
+ * print as updatedPermissions (destination "session", whatever Claude Code suggested); `shown` what the page says each
+ * one does. Only allow rules, extra folders, and switching to a mode that still asks for what it must
+ * (SESSION_MODES): anything else is left out. Offered only when the page can show every entry exactly as it's
+ * applied: null when none is left, when there are more than MAX_SUGGESTIONS entries in all, or when any rule or
+ * folder would show other than it is (masked, cut, or with characters that don't show).
+ */
+export function sessionSuggestions(list) {
+  const apply = [];
+  const shown = [];
+  let entries = 0;
+  for (const s of Array.isArray(list) ? list : []) {
+    if (!s || typeof s !== "object") continue;
+    if (s.type === "addRules" && s.behavior === "allow" && Array.isArray(s.rules)) {
+      const rules = s.rules.filter((r) => r && typeof r.toolName === "string" && r.toolName && (r.ruleContent === undefined || typeof r.ruleContent === "string"));
+      if (!rules.length) continue;
+      const words = rules.map((r) => (r.ruleContent === undefined ? r.toolName : `${r.toolName}(${r.ruleContent})`));
+      const rulesShown = words.map((w) => shownText(w, MAX_RULE_CHARS));
+      if (rulesShown.some((w, i) => w !== words[i])) return null;
+      entries += rules.length;
+      apply.push({ type: "addRules", rules: rules.map((r) => (r.ruleContent === undefined ? { toolName: r.toolName } : { toolName: r.toolName, ruleContent: r.ruleContent })), behavior: "allow", destination: "session" });
+      shown.push({ type: "addRules", rules: rulesShown });
+    } else if (s.type === "setMode" && SESSION_MODES.has(s.mode)) {
+      entries += 1;
+      apply.push({ type: "setMode", mode: s.mode, destination: "session" });
+      shown.push({ type: "setMode", mode: s.mode });
+    } else if (s.type === "addDirectories" && Array.isArray(s.directories)) {
+      const directories = s.directories.filter((d) => typeof d === "string" && d);
+      if (!directories.length) continue;
+      const marks = [];
+      const dirsShown = directories.map((d) => outsidePath(d, marks));
+      if (marks.length || directories.some((d) => HIDDEN.test(d) || d.length > MAX_RULE_CHARS * 2)) return null;
+      entries += directories.length;
+      apply.push({ type: "addDirectories", directories, destination: "session" });
+      shown.push({ type: "addDirectories", directories: dirsShown });
+    }
+  }
+  if (entries > MAX_SUGGESTIONS) return null;
+  return apply.length ? { apply, shown } : null;
+}
+
+/** A target's details without the empty ones (so the same prompt always hashes the same), or null when nothing's left. */
+function compactDetails(d) {
+  const out = {};
+  for (const [k, v] of Object.entries(d)) {
+    if (v === null || v === undefined || (Array.isArray(v) && !v.length)) continue;
+    out[k] = Array.isArray(v) && k === "badges" ? [...new Set(v)] : v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * What a waiting prompt shows on AgentMingo: { toolName, kind, preview, added, removed, canAllow, why, details }, for
+ * every prompt the PermissionRequest hook sees (reporter 17). A file change shows its path (in the repository from its
+ * top, else as given) and how many lines it adds and removes, never the change itself. A command shows masked (20
+ * lines and 1,000 characters at most). An MCP tool shows its server and tool, and any other tool its name, each with
+ * its input summed up on one line, masked. A question (AskUserQuestion) shows its questions and options, and a plan to
+ * approve (ExitPlanMode) its plan, masked. `details` carries badges (BADGES: what kind of thing it is, as the page
+ * says it), the summary, the MCP server and tool, the questions or the plan, and what Claude Code's "don't ask again"
+ * suggestions would allow for this session (sessionSuggestions). Everything can be allowed from AgentMingo, as in the
+ * terminal: `canAllow` is always true (`why` stays for AgentMingo's older pages).
  */
 export function permissionTarget(input, opts = {}) {
   const toolName = input && typeof input.tool_name === "string" ? input.tool_name.slice(0, 120) : "";
-  if (!toolName || NOT_PERMISSIONS.has(toolName)) return null;
+  if (!toolName) return null;
   const ti = input.tool_input && typeof input.tool_input === "object" ? input.tool_input : {};
   const cwd = typeof input.cwd === "string" ? input.cwd : null;
   const platform = opts.platform || process.platform;
-  if (["Edit", "MultiEdit", "Write", "NotebookEdit"].includes(toolName)) {
+  const suggestions = sessionSuggestions(input.permission_suggestions);
+  const session = suggestions ? suggestions.shown : null;
+  if (toolName === QUESTION_TOOL) {
+    const badges = [];
+    return shownTarget(toolName, "question", null, { questions: questionsOf(ti, badges), badges, session });
+  }
+  if (toolName === PLAN_TOOL) {
+    const badges = [];
+    const plan = typeof ti.plan === "string" && ti.plan.trim() ? shownText(ti.plan.slice(0, MAX_PLAN_CHARS * 2), MAX_PLAN_CHARS, badges) : null;
+    if (plan && ti.plan.length > MAX_PLAN_CHARS) badges.push("cut");
+    return shownTarget(toolName, "plan", null, { plan, badges, session });
+  }
+  if (FILE_TOOLS.has(toolName)) {
     const path = toolName === "NotebookEdit" ? ti.notebook_path : ti.file_path;
     const where = fileTarget(path, cwd, platform);
     const abs = typeof path === "string" && isAbsolute(path) ? path : null;
@@ -3161,18 +3471,32 @@ export function permissionTarget(input, opts = {}) {
       kind = "notebook";
       added = ti.edit_mode === "delete" ? 0 : lineCount(ti.new_source);
     }
-    return { toolName, kind, ...where, added, removed };
+    return shownTarget(toolName, kind, where.preview, { badges: where.badges, session }, added, removed);
   }
   if (toolName === "Bash") {
-    if (!opts.commands) return { toolName, kind: "command", preview: null, added: null, removed: null, canAllow: false, why: "commands_off" };
+    const badges = ["command"];
     const raw = String(typeof ti.command === "string" ? ti.command : "").slice(0, MAX_COMMAND_SCANNED);
-    const masked = maskPersonal(visible(raw));
+    const written = visible(raw);
+    const masked = maskPersonal(written);
+    if (HIDDEN.test(raw)) badges.push("hidden_chars");
+    if (masked !== written) badges.push("masked");
     let shown = masked.split("\n").slice(0, MAX_COMMAND_LINES).join("\n");
     if (shown.length > MAX_COMMAND_CHARS) shown = shown.slice(0, MAX_COMMAND_CHARS);
     const cut = shown.length < masked.length || raw.length >= MAX_COMMAND_SCANNED;
-    return { toolName, kind: "command", preview: cut ? `${shown}\n… (cut: the rest shows only in the terminal)` : shown, added: null, removed: null, canAllow: false, why: "command" };
+    if (cut) badges.push("cut");
+    const description = typeof ti.description === "string" && ti.description.trim() ? shownText(ti.description.replace(/\s+/g, " ").trim(), MAX_SUMMARY_CHARS, badges) : null;
+    return shownTarget(toolName, "command", cut ? `${shown}\n… (cut: the rest shows only in the terminal)` : shown, { badges, summary: description, session });
   }
-  return { toolName, kind: "other", preview: null, added: null, removed: null, canAllow: false, why: "tool" };
+  const badges = [];
+  const mcp = mcpParts(toolName);
+  if (mcp) badges.push("mcp");
+  const summary = inputSummary(ti, badges);
+  return shownTarget(toolName, mcp ? "mcp" : "other", summary, { badges, ...(mcp ? { server: mcp.server, tool: mcp.tool } : {}), session });
+}
+
+/** A prompt's target as permissionTarget returns it: Allow offered (as in the terminal), its details compacted. */
+function shownTarget(toolName, kind, preview, details, added = null, removed = null) {
+  return { toolName, kind, preview, added, removed, canAllow: true, why: null, details: compactDetails(details) };
 }
 
 /** Where the Notification hook notes that a thread's permission prompt is on screen. */
@@ -3317,11 +3641,12 @@ function noteAnswered(home, p, sid, now, flush) {
 }
 
 /**
- * Turned on here (`approvals on`) and given --wait: opens a request for this permission prompt on AgentMingo and checks
- * for an answer, while Claude Code's own prompt stays on screen; the first answer wins. Returns { behavior: "allow" }
- * or { behavior: "deny", note, stop }, which the hook prints, or null to print nothing (the terminal prompt stays):
- * nothing to wait for (off, a subagent's prompt, a question, a thread that doesn't report, a headless run, a Claude
- * Code version not checked), in a terminal the prompt not on screen within DIALOG_SHOWN_WITHIN_MS, answered here
+ * Turned on here (`approvals on`) and given --wait: opens a request for this prompt on AgentMingo (a permission for
+ * any tool, a question, or a plan to approve) and checks for an answer, while Claude Code's own prompt stays on
+ * screen; the first answer wins. Returns { behavior: "allow", kind, updatedInput?, permissions?, session? } or
+ * { behavior: "deny", kind, note, stop }, which the hook prints (decisionOutput), or null to print nothing (the
+ * terminal prompt stays): nothing to wait for (off, a subagent's prompt, a thread that doesn't report, a headless
+ * run, a Claude Code version known to misbehave), in a terminal the prompt not on screen within DIALOG_SHOWN_WITHIN_MS, answered here
  * first, its time up, Claude Code gone, or an answer that doesn't match this prompt (its bind, the preview the page
  * showed, Allow still allowed here) or is over ANSWER_MAX_AGE_S old. When Claude Code stops the hook (STOP_SIGNALS),
  * it closes the request on its way out, best effort (closeOnSignal). Never throws.
@@ -3362,8 +3687,8 @@ function parentPid() {
 
 /**
  * A prompt a hook may wait on, with all it needs to (`w`), or null: approvals on here and --wait given, a thread's
- * main conversation (not a subagent's), a thread that reports, AgentMingo answering, a place where the prompt stays on
- * screen while hooks run (promptHost), and a permission, not a question.
+ * main conversation (not a subagent's), a thread that reports, AgentMingo answering, and a place where the prompt
+ * stays on screen while hooks run (promptHost). Any prompt: a permission for any tool, a question, a plan.
  */
 function waitingPrompt(home, raw, waitArg, deps) {
   const p = paths(home);
@@ -3379,7 +3704,7 @@ function waitingPrompt(home, raw, waitArg, deps) {
   if (forbiddenNow(p, key, now()) || backingOff(p, key, now(), true)) return null;
   const host = promptHost(deps.facts || transcriptFacts(input.transcript_path));
   if (!host.ok) return null;
-  const opts = { commands: config.approvals.commands === true, platform: deps.platform };
+  const opts = { platform: deps.platform };
   const target = permissionTarget(input, opts);
   if (!target) return null;
   const started = now();
@@ -3412,7 +3737,7 @@ function waitingPrompt(home, raw, waitArg, deps) {
 /** Opens the request on AgentMingo, asking again for a second at a time while the thread's first report is on its way. */
 async function openRequest(w) {
   const t = w.target;
-  const body = { session: w.sid, requestId: w.requestId, tool: t.toolName, kind: t.kind, preview: t.preview, added: t.added, removed: t.removed, canAllow: t.canAllow, why: t.why, bind: w.bind, previewHash: w.previewHash };
+  const body = { session: w.sid, requestId: w.requestId, tool: t.toolName, kind: t.kind, preview: t.preview, added: t.added, removed: t.removed, canAllow: t.canAllow, why: t.why, details: t.details, bind: w.bind, previewHash: w.previewHash };
   while (w.now() - w.started < OPEN_RETRY_MS) {
     const res = await w.ask(w.conn, "/api/v1/agent-sessions/permissions", { ...body, waitS: Math.floor((w.deadline - w.now()) / 1000) }, APPROVAL_FETCH_TIMEOUT_MS);
     if (res.status === 403) noteSend(w.p, w.key, res, w.now());
@@ -3454,38 +3779,73 @@ async function waitForAnswer(w) {
 }
 
 /**
- * An answer picked up: used only when it carries this prompt's bind, is under ANSWER_MAX_AGE_S old, and for Allow, the
- * page showed this preview and this computer would still offer Allow for it (the file didn't turn into a link
- * meanwhile, say) and the prompt wasn't answered here. Otherwise the request is closed as refused, and nothing printed.
+ * An answer picked up: used only when it carries this prompt's bind, is under ANSWER_MAX_AGE_S old, and for an allow,
+ * the page showed what this computer would still show for it (the file didn't turn into a link meanwhile, say), the
+ * prompt wasn't answered here, "don't ask again" (`choice: "session"`) only where Claude Code suggested something to
+ * allow (sessionSuggestions, applied for this session only), and a question's answers fit its questions
+ * (answeredInput). Otherwise the request is closed as refused, and nothing printed.
  */
 async function applyAnswer(w, d) {
   if (d.bind !== w.bind) return closeRequest(w, "refused_locally");
   if (!(Number(d.ageS) <= ANSWER_MAX_AGE_S)) return closeRequest(w, "too_late");
-  if (d.status === "allowed") {
-    const again = permissionTarget(w.input, w.opts);
-    if (!w.target.canAllow || d.shown !== w.previewHash || !again || !again.canAllow || previewHashOf(again) !== w.previewHash || answeredHere(w.p, w.sid, w.started, w.watch)) {
-      return closeRequest(w, "refused_locally");
-    }
+  const kind = w.target.kind;
+  if (d.status !== "allowed") {
+    noteAnswered(w.home, w.p, w.sid, w.now(), w.flush);
+    return { behavior: "deny", kind, note: typeof d.note === "string" ? d.note : null, stop: d.stop === true };
   }
+  const again = permissionTarget(w.input, w.opts);
+  if (!w.target.canAllow || d.shown !== w.previewHash || !again || !again.canAllow || previewHashOf(again) !== w.previewHash || answeredHere(w.p, w.sid, w.started, w.watch)) {
+    return closeRequest(w, "refused_locally");
+  }
+  const suggestions = d.choice === "session" ? sessionSuggestions(w.input.permission_suggestions) : null;
+  if (d.choice === "session" && !suggestions) return closeRequest(w, "refused_locally");
+  const toolInput = w.input.tool_input && typeof w.input.tool_input === "object" ? w.input.tool_input : {};
+  // A question is answered by its input carrying the answers; a plan is approved with its input as it came (Claude
+  // Code wants input back with an allow for these two).
+  const updatedInput = kind === "question" ? answeredInput(toolInput, d.answers) : kind === "plan" ? toolInput : null;
+  if (kind === "question" && !updatedInput) return closeRequest(w, "refused_locally");
   noteAnswered(w.home, w.p, w.sid, w.now(), w.flush);
-  return d.status === "allowed" ? { behavior: "allow" } : { behavior: "deny", note: typeof d.note === "string" ? d.note : null, stop: d.stop === true };
+  return { behavior: "allow", kind, ...(updatedInput ? { updatedInput } : {}), ...(suggestions ? { permissions: suggestions.apply, session: suggestions.shown } : {}) };
+}
+
+/** A permission mode as AgentMingo's page and Claude Code's own prompt word it. */
+const MODE_SAID = { acceptEdits: "accept edits", default: "ask before edits", plan: "plan mode", auto: "auto mode" };
+
+/** What "don't ask again" allowed for this session, in words for the terminal ("Bash(npm test:*)", "accept edits"), as the page says them. */
+function sessionWords(shown) {
+  const parts = [];
+  for (const s of Array.isArray(shown) ? shown : []) {
+    if (s.type === "addRules") parts.push(...s.rules);
+    else if (s.type === "setMode") parts.push(MODE_SAID[s.mode] || s.mode);
+    else if (s.type === "addDirectories") parts.push(...s.directories.map((d) => `the folder ${d}`));
+  }
+  return parts.join(", ");
 }
 
 /**
- * The hook's output for an answer from AgentMingo: allow this one call (never with changed input or an "always allow"
- * rule), or deny it with the person's note quoted as their words (and with `stop`, stop the turn). Its systemMessage
+ * The hook's output for an answer from AgentMingo. An allow: this one call, with a question's answers or a plan as its
+ * input (updatedInput), and with "don't ask again", Claude Code's own suggestions for this session only
+ * (updatedPermissions, destination "session"). A deny: the person's note quoted as their words (and with `stop`, stop
+ * the turn); for a question, that they chose not to answer it there; for a plan, to keep planning. Its systemMessage
  * shows in the terminal, so the person sees why the prompt went away.
  */
 export function decisionOutput(d, at = new Date()) {
   const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
   if (d.behavior === "allow") {
-    return { hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } }, systemMessage: `Allowed once from AgentMingo by you at ${time}.` };
+    const decision = { behavior: "allow" };
+    if (d.updatedInput) decision.updatedInput = d.updatedInput;
+    if (Array.isArray(d.permissions) && d.permissions.length) decision.updatedPermissions = d.permissions;
+    const again = decision.updatedPermissions ? `, and not to ask again this session for ${sessionWords(d.session) || "what Claude Code suggested"}` : "";
+    const said = d.kind === "question" ? `Answered from AgentMingo by you at ${time}.` : d.kind === "plan" ? `Plan approved from AgentMingo by you at ${time}${again}.` : again ? `Allowed from AgentMingo by you at ${time}${again}.` : `Allowed once from AgentMingo by you at ${time}.`;
+    return { hookSpecificOutput: { hookEventName: "PermissionRequest", decision }, systemMessage: said };
   }
   const note = typeof d.note === "string" ? maskPersonal(d.note.replace(/\s+/g, " ").trim()).slice(0, 300).replace(/"/g, "'") : "";
-  const message = `The person you're working with denied this from AgentMingo${d.stop ? " and asked you to stop" : ""}.${note ? ` Their note, in their own words: "${note}"` : ""}`;
+  const what = d.kind === "question" ? "chose not to answer this question from AgentMingo" : d.kind === "plan" ? "didn't approve this plan from AgentMingo: keep planning" : "denied this from AgentMingo";
+  const message = `The person you're working with ${what}${d.stop ? " and asked you to stop" : ""}.${note ? ` Their note, in their own words: "${note}"` : ""}`;
+  const said = d.kind === "question" ? "Not answered" : d.kind === "plan" ? "Plan not approved" : "Denied";
   return {
     hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "deny", message, interrupt: d.stop === true } },
-    systemMessage: `Denied${d.stop ? " (and stopped)" : ""} from AgentMingo by you at ${time}.`,
+    systemMessage: `${said}${d.stop ? " (and stopped)" : ""} from AgentMingo by you at ${time}.`,
   };
 }
 
@@ -3506,25 +3866,19 @@ export function withPermissionWait(settings, waitS) {
 }
 
 /**
- * Turns answering prompts from AgentMingo on (`choice`: { commands, waitS }) or off (null) on this computer: in its
- * config (on, with a new key for binding answers to prompts, which never leaves it) and in the PermissionRequest hook
- * in Claude Code's settings. Only sessions started from then on wait; the ones open keep the hook they started with.
- * The `approvals` command calls it after asking; install's --approvals sets the same through installConfig.
+ * Turns answering prompts from AgentMingo on (`choice`: { waitS }) or off (null) on this computer: in its config (on,
+ * with a new key for binding answers to prompts, which never leaves it) and in the PermissionRequest hook in Claude
+ * Code's settings. Only sessions started from then on wait; the ones open keep the hook they started with. The
+ * `approvals` command calls it after asking; install's --approvals sets the same through installConfig. On covers
+ * every prompt (reporter 17): `files` and `commands` stay in the config for a reporter rolled back to 16.
  */
 export function setApprovals(home, choice) {
   const p = paths(home);
   const config = readJson(p.config);
   if (!config) throw new Error("Not connected yet. Run install first (the command is on the Sessions page).");
   const next = { ...config };
-  if (choice) {
-    next.approvals = {
-      files: true,
-      commands: choice.commands === true,
-      unchecked: choice.unchecked === true,
-      waitS: parseWait(choice.waitS) ?? APPROVAL_WAIT_DEFAULT_S,
-      key: randomBytes(32).toString("base64url"),
-    };
-  } else delete next.approvals;
+  if (choice) next.approvals = newApprovals(parseWait(choice.waitS) ?? APPROVAL_WAIT_DEFAULT_S);
+  else delete next.approvals;
   writeJson(p.config, next, 0o600);
   chmodSync(p.config, 0o600);
   const file = typeof config.settings === "string" && config.settings ? config.settings : defaultClaudeSettings();
@@ -3542,6 +3896,11 @@ export function setApprovals(home, choice) {
   return { approvals: next.approvals || null, settings: file, hooks };
 }
 
+/** Answering prompts from AgentMingo, turned on: every prompt, a hook waiting `waitS`, and a new key that never leaves this computer. */
+function newApprovals(waitS) {
+  return { files: true, commands: true, waitS, key: randomBytes(32).toString("base64url") };
+}
+
 /** Which Claude Code versions a hook waits on, in words: any but those known to misbehave, and the guard in a terminal. */
 function versionsWords() {
   const bad = [...new Set([...KNOWN_BAD_TERMINAL_VERSIONS, ...KNOWN_BAD_APP_VERSIONS])];
@@ -3554,12 +3913,16 @@ export function approvalsLine(config) {
   if (!a || typeof a !== "object") {
     return `Answering prompts and replies from AgentMingo: off (to turn it on, run a new setup command from your Sessions page with its box ticked, or in your own terminal: node ${SCRIPT} approvals on).`;
   }
-  return `Answering prompts and replies from AgentMingo: on for file edits${a.commands ? ", with commands shown (to deny; allowing commands isn't offered)" : " (commands can only be denied there)"}. A prompt waits up to ${waitWords(a.waitS)} for an answer there, in sessions started since you turned it on, ${versionsWords()}. A thread waiting for you can be replied to from its page. Turn it off with: node ${SCRIPT} approvals off`;
+  return `Answering prompts and replies from AgentMingo: on, for every prompt a thread's main conversation shows (file edits, commands, MCP and other tools, questions and plans to approve), with the same answers as the terminal. A prompt waits up to ${waitWords(a.waitS)} for an answer there, in sessions started since you turned it on, ${versionsWords()}. A thread waiting for you can be replied to from its page. Turn it off with: node ${SCRIPT} approvals off`;
 }
 
 /** What turning answering prompts on says about replies, which go with it. */
 const REPLIES_SAID =
-  "- Replies too: when a thread finishes its turn and waits for you, you can answer it from its page (Continue, Yes, No or a short text). After each reply the watcher listens up to 8 hours for one, and wakes the thread with it, as your words. Its text is sent to this computer; only you can send one, signed in as yourself. Someone who gets into your AgentMingo account could send your threads a reply; a command a thread then wants to run still needs your terminal to allow it (unless your Claude Code settings already allow it), since AgentMingo can only deny commands.";
+  "- Replies too: when a thread finishes its turn and waits for you, you can answer it from its page (Continue, Yes, No or a short text). After each reply the watcher listens up to 8 hours for one, and wakes the thread with it, as your words. Its text is sent to this computer; only you can send one, signed in as yourself. Someone who gets into your AgentMingo account could send your threads a reply, and allow what they then ask to run.";
+
+/** What every prompt sends, in words for turning it on (the header says the same). */
+const PROMPTS_SENT_SAID =
+  "- Sent for each prompt: the tool's name; for a file change, its path (from the repository's top, or as given outside it) with how many lines it adds and removes (never the change itself); for a command, the command; for an MCP or other tool, its server and its input summed up in one line; for a question, its questions and options; for a plan, the plan; and what Claude Code's “don't ask again” would allow. All masked like titles (best effort: a password a masking rule doesn't know can get through).";
 
 /** Asks a question in the terminal and resolves to the line typed. */
 function askLine(question) {
@@ -3573,10 +3936,10 @@ function askLine(question) {
 }
 
 /**
- * `approvals on [--commands] [--wait 1h] | off | status`. On only from a terminal of the person's own, never from inside
- * Claude Code's Bash tool, and only after they type "yes" to what it turns on (it has no one-time code to stand for
- * their consent, as the setup command's --approvals has); off and status from anywhere. (--unchecked,
- * from reporter 14, is still taken and changes nothing: no version list holds waiting back now but known bad ones.)
+ * `approvals on [--wait 1h] | off | status`. On only from a terminal of the person's own, never from inside Claude
+ * Code's Bash tool, and only after they type "yes" to what it turns on (it has no one-time code to stand for their
+ * consent, as the setup command's --approvals has); off and status from anywhere. (--unchecked, from reporter 14, and
+ * --commands, before reporter 17, are still taken and change nothing: every prompt is shared once it's on.)
  */
 export async function approvalsCommand(home, mode, flags = {}, deps = {}) {
   const say = deps.say || console.log;
@@ -3599,13 +3962,12 @@ export async function approvalsCommand(home, mode, flags = {}, deps = {}) {
   const waitS = parseWait(flags.wait);
   if (waitS === null) throw new Error("Give --wait in minutes or hours, from 5 minutes to 8 hours, like 30m, 2h or 1h30m.");
   for (const line of [
-    "This turns on answering your coding agent's permission prompts from AgentMingo, on this computer only:",
-    `- When a session here stops on a permission prompt, the prompt also waits up to ${waitWords(waitS)} for an answer on the thread's page in AgentMingo, and its notice links there. The terminal prompt stays on screen; whichever is answered first counts.`,
-    "- Sent for each prompt: the tool, and for a file change, its path in the repository with how many lines it adds and removes (never the change itself), masked like titles.",
-    flags.commands ? "- With --commands, a command is sent too, masked (best effort: a password a masking rule doesn't know can get through), so you can deny it there. Allowing a command from AgentMingo isn't offered." : "- Commands aren't sent (add --commands to see them there, to deny them).",
-    "- Only you can answer, signed in as yourself (not teammates or admins). Allow is offered only for a file inside the repository, not for files that can run code or change settings by themselves; allowing a file change can still lead to running code later (tests run what's in it). Deny always works.",
-    "- Someone who gets into your AgentMingo account could allow a file change here, and someone who controls AgentMingo's servers or database could answer for you or show you a different file than the one that changes. The reporter's updates come from AgentMingo too (turn them off with: auto-update off).",
-    `- It waits ${versionsWords()}. In VS Code and the desktop app Claude Code shows its prompt and runs this hook at the same time. Claude Code doesn't document that a hook can wait while its prompt stays usable: if a terminal prompt ever stops taking your keys while it waits, turn this off and tell AgentMingo.`,
+    "This turns on answering your coding agent's prompts from AgentMingo, on this computer only:",
+    `- When a session here stops on a prompt (a file edit, a command, an MCP or other tool, a question, a plan to approve), the prompt also waits up to ${waitWords(waitS)} for an answer on the thread's page in AgentMingo, with the same answers as the terminal, and its notice links there. The terminal prompt stays on screen; whichever is answered first counts.`,
+    PROMPTS_SENT_SAID,
+    "- Only you can answer, signed in as yourself (not teammates or admins). Anything can be allowed there, as in the terminal: commands that run on this computer, files outside the repository, Claude Code's settings. Each answer works once, for that prompt only, and shows in the thread's history.",
+    "- Someone who gets into your AgentMingo account could allow what your agent asks to run here, and someone who controls AgentMingo's servers or database could answer for you or show you something other than what runs. The reporter's updates come from AgentMingo too (turn them off with: auto-update off).",
+    `- It waits ${versionsWords()}. In VS Code and the desktop app Claude Code shows its prompt and runs this hook at the same time, and takes whichever answers first. In a terminal, Claude Code doesn't document that a hook can wait while its prompt stays usable: if a terminal prompt ever stops taking your keys while it waits, turn this off and tell AgentMingo.`,
     REPLIES_SAID,
     `- Only in sessions started from now on. Turn it off any time with: node ${SCRIPT} approvals off`,
   ])
@@ -3615,7 +3977,7 @@ export async function approvalsCommand(home, mode, flags = {}, deps = {}) {
     say("Not turned on.");
     return 1;
   }
-  const done = setApprovals(home, { commands: flags.commands === true, unchecked: flags.unchecked === true, waitS: flags.wait });
+  const done = setApprovals(home, { waitS: flags.wait });
   say(
     done.hooks === "set"
       ? `On. Claude Code's PermissionRequest hook in ${done.settings} now waits up to ${waitWords(waitS)}. Sessions started from now on use it.`
@@ -5111,11 +5473,9 @@ export function installConfig(previous, args, url, token, approvalsOn = false) {
   delete before.connections;
   // Answering prompts and replies from AgentMingo is kept as it was, unless --no-approvals turns it off, or --approvals
   // turns it on (`approvalsOn`: only once approvalsFromSetup found the setup command's one-time code; the flag alone
-  // never does). Turned on: file edits, an hour's wait, and a new key for binding answers that never leaves here.
+  // never does). Turned on: every prompt, an hour's wait, and a new key for binding answers that never leaves here.
   if (args["no-approvals"]) delete before.approvals;
-  else if (approvalsOn && !repliesOn(before)) {
-    before.approvals = { files: true, commands: false, unchecked: false, waitS: APPROVAL_WAIT_DEFAULT_S, key: randomBytes(32).toString("base64url") };
-  }
+  else if (approvalsOn && !repliesOn(before)) before.approvals = newApprovals(APPROVAL_WAIT_DEFAULT_S);
   return {
     ...before,
     url,
@@ -5148,7 +5508,7 @@ function keptChoices(previous, args) {
   if (previous.reviews === true && !args.reviews && !args["no-reviews"]) kept.push("review results on");
   if (previous.autoUpdate === false && !args["no-auto-update"]) kept.push("updating off");
   if (previous.approvals && typeof previous.approvals === "object" && !args["no-approvals"]) {
-    kept.push(`answering prompts and replies from AgentMingo on (file edits${previous.approvals.commands ? ", commands shown" : ""}; approvals off turns it off)`);
+    kept.push("answering prompts and replies from AgentMingo on (every prompt; approvals off turns it off)");
   }
   return kept;
 }
@@ -5230,9 +5590,9 @@ export function approvalsStayedOffSaid(why) {
 function approvalsTurnedOnSaid() {
   return [
     "Turned on (the setup command's --approvals, with its one-time code from your Sessions page): answering prompts and replies from AgentMingo, on this computer.",
-    `- A thread's permission prompt also opens on its page in AgentMingo, for you alone (not teammates or admins), and waits there up to ${waitWords(APPROVAL_WAIT_DEFAULT_S)}: Allow once for a file edit inside the repository (not files that can run code or change settings by themselves), Deny for anything. Commands can only be denied there; allowing one stays in your terminal. The terminal prompt stays on screen, and whichever is answered first counts.`,
-    "- A thread that finishes its turn and waits for you can be answered from its page (Continue, Yes, No or a short text): after each reply its watcher listens up to 8 hours (until you type in the thread), and wakes the thread with yours, as your words. Replying needs a sign-in in that browser within the last day.",
-    "- Sent: a prompt's tool, and for a file edit its path in the repository and line counts (never the change); your replies come to this computer. Someone who gets into your AgentMingo account could answer or reply for you.",
+    `- Every prompt a thread shows (a file edit, a command, an MCP or other tool, a question, a plan to approve) also opens on its page in AgentMingo, for you alone (not teammates or admins), and waits there up to ${waitWords(APPROVAL_WAIT_DEFAULT_S)}, with the same answers as the terminal: Yes, Yes and don't ask again (for this session), or No with a note. The terminal prompt stays on screen, and whichever is answered first counts.`,
+    "- A thread that finishes its turn and waits for you can be answered from its page (Continue, Yes, No or a short text): after each reply its watcher listens up to 8 hours (until you type in the thread), and wakes the thread with yours, as your words.",
+    "- Sent: a prompt's tool and what it wants (a file's path and line counts, never the change; a command; a tool's input in one line; a question; a plan), masked; your answers and replies come to this computer. Someone who gets into your AgentMingo account could allow what your agent asks to run here, or reply for you.",
     `- In sessions started from now on. To turn it off: node ${SCRIPT} approvals off`,
   ];
 }
@@ -5694,6 +6054,7 @@ const OPTIONS = {
   "e2e-reason": { type: "string" },
   attach: { type: "string", multiple: true },
   wait: { type: "string" },
+  // `approvals on --commands` (before reporter 17) and --unchecked (reporter 14) are still taken, and change nothing.
   commands: { type: "boolean" },
   unchecked: { type: "boolean" },
   approvals: { type: "boolean" },
@@ -5768,7 +6129,7 @@ export async function main(argv) {
     }
     if (command === "lean-git" && ["on", "off", "status"].includes(mode)) return leanGit(values, mode);
     if (command === "approvals" && ["on", "off", "status"].includes(mode)) {
-      return await approvalsCommand(resolve(values.home || defaultHome()), mode, { commands: values.commands === true, unchecked: values.unchecked === true, wait: values.wait });
+      return await approvalsCommand(resolve(values.home || defaultHome()), mode, { wait: values.wait });
     }
     if (command === "share-files" && ["on", "off"].includes(mode)) {
       setConfig(resolve(values.home || defaultHome()), { shareFiles: mode === "on" });
@@ -5790,7 +6151,7 @@ export async function main(argv) {
       return 0;
     }
     console.log(
-      "Usage: node reporter.mjs install --url <AgentMingo address> --org <organization> --code <setup code> [--no-titles] [--lean-git] [--share-files|--no-share-files] [--reviews|--no-reviews] [--no-mcp] [--no-auto-update] [--approvals|--no-approvals] | status | repos [add [owner/name] | remove <owner/name>] [--org <organization>] | start <task key> [--repo <name>] [--in <folder>] [--no-env | --env-all] [--no-launch] | lean-git on|off|status | titles on|off | share-files on|off | reviews on|off | auto-update on|off | approvals on [--commands] [--wait <time>]|off|status | step <id> done|failed <summary> | mcp | uninstall",
+      "Usage: node reporter.mjs install --url <AgentMingo address> --org <organization> --code <setup code> [--no-titles] [--lean-git] [--share-files|--no-share-files] [--reviews|--no-reviews] [--no-mcp] [--no-auto-update] [--approvals|--no-approvals] | status | repos [add [owner/name] | remove <owner/name>] [--org <organization>] | start <task key> [--repo <name>] [--in <folder>] [--no-env | --env-all] [--no-launch] | lean-git on|off|status | titles on|off | share-files on|off | reviews on|off | auto-update on|off | approvals on [--wait <time>]|off|status | step <id> done|failed <summary> | mcp | uninstall",
     );
     return command ? 1 : 0;
   } catch (e) {
