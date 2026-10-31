@@ -4,6 +4,19 @@ Each version is the `VERSION` constant in `reporter.mjs`. Reporters update thems
 
 From version 11 on, each entry gives the SHA-256 of `reporter.mjs` as agentmingo.com served it, and the date it started serving it. This repository starts at version 12; each release is published here by hand for now. Versions 1 to 11 came before this repository and their files aren't published here. The entries for 1 to 10 are summaries of what changed, from the script's history in AgentMingo's own repository, and their dates are when each version was written, not when it was served.
 
+## 16 (served from 2026-10-30)
+
+SHA-256 of `reporter.mjs`: `d6a22469bf6c41d835a902d180bd175fc9b1fef7b97cd9cdee191efadfaf5dcd`
+
+- The setup command turns on answering permission prompts and replies from AgentMingo wherever it runs: in a terminal, in an editor, or in a coding agent's Bash tool you paste it into. You no longer have to run it in a terminal of your own, or run `approvals on` afterwards. Install's `--approvals` dropped version 15's checks for a real terminal and for Claude Code's Bash tool. The one-time code stands for your consent instead: it's made only for you, signed in, works once, and for 15 minutes.
+- Setup codes carry the box "Answer prompts and reply to threads from AgentMingo": `ama_` when it was ticked, `amc_` when it wasn't. AgentMingo stores only the code's hash, so a code whose prefix was changed by hand isn't one AgentMingo knows, and install stops before anything changes. When install trades a code, AgentMingo's answer now also says whether it was made with the box ticked (`approvals`), and `tradeSetupCode()` returns that. `--approvals` turns it on only when that answer says ticked.
+- `--approvals` never makes the install fail. With the older `--token` form, or with `--approvals` added to a command made with the box unticked, install connects the computer, leaves answering prompts and replies off, and prints a line saying so, why, and how to turn it on (`approvalsStayedOffSaid()`). In 15, install refused and changed nothing. Already on, `--approvals` still changes nothing. `approvalsFromSetup()` now takes the traded code's answer and returns `"on"`, `"no_code"`, `"unticked"` or `null`.
+- `approvals on` is unchanged: it works only in your own terminal, outside Claude Code's Bash tool, and asks you to type yes, since it has no one-time code. Its refusal, and the line `status` and install print when it's off, now also say that a new setup command with the box ticked turns it on.
+- Install reads Claude Code's settings before it trades the one-time code. Settings that aren't valid JSON stop install while the code still works, and nothing changes. Before 16, install traded the code first, so a broken settings file used it up.
+- Masking on the computer covers `ama_` codes too, alongside `amc_` codes and `amk_` tokens. AgentMingo's own masking got the same rule.
+- What it sends is unchanged. Install still sends the setup command's one-time code, the organization's short name and the script's version.
+- The header says all of the above: where the setup command turns it on, that the code is your consent and carries the box, what happens with `--token` or an unticked code, and the limit (whoever runs a command made with the box ticked while its code is unused turns it on, you or the agent you gave it to).
+
 ## 15 (served from 2026-10-30)
 
 SHA-256 of `reporter.mjs`: `587423d45826e291f1c02e905bc0f40d5c3c7caf3a8ea92f22630361dde83ac4`

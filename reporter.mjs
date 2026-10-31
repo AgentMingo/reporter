@@ -57,13 +57,21 @@
  * sends no paths, your sessions get no such note, and AgentMingo names your sessions in no teammate's notes: not in
  * their note about other sessions, and not when someone else's thread works on the same task.
  *
- * Answering permission prompts and replies from AgentMingo is off unless you turn it on here, in your own terminal: by
- * running the setup command with its box "Answer prompts and reply to threads from AgentMingo" ticked (it is by default:
- * install's --approvals, which turns it on only with the command's one-time code from your Sessions page, in a real
- * terminal, not inside Claude Code's Bash tool, and says so; it refuses otherwise), or with `approvals on`, which asks
- * you to type yes. Those checks catch a command run by mistake or by your coding agent's Bash tool; a program on your
- * computer set on faking a terminal could get past them. AgentMingo's website and servers can't turn it on by
- * themselves: the setup command carries the flag, and you run it
+ * Answering permission prompts and replies from AgentMingo is off unless you turn it on here: by running the setup
+ * command with its box "Answer prompts and reply to threads from AgentMingo" ticked (it is by default: install's
+ * --approvals, which turns it on with the command's one-time code from your signed-in Sessions page wherever the
+ * command runs, in a terminal, an editor or a coding agent's thread you paste it into, and says so), or with
+ * `approvals on` in your own terminal, which asks you to type yes. The one-time code is your consent: it's made only
+ * for you, signed in to AgentMingo (the Sessions page or the setup guide), it works once, and for 15 minutes. The code
+ * carries the box's choice, and AgentMingo says it back when install trades the code: adding --approvals to a command
+ * made with the box unticked doesn't turn it on (install connects this computer and says it stayed off), and the code
+ * can't be changed to say otherwise without breaking it. With the older --token form, --approvals leaves it off too:
+ * install still connects this computer and says how to turn it on. The limit: whoever runs a command made with the
+ * box ticked while its code is unused (you, or the coding agent you gave it to) turns it on, as they run everything
+ * else the command does. `approvals on` refuses inside Claude Code's Bash tool and without a terminal: those
+ * checks catch a command run by mistake or by your coding agent's Bash tool; a program on your computer set on faking a
+ * terminal could get past them. AgentMingo's website and servers can't turn it on by themselves: the setup command
+ * carries the flag, and you run it, or give it to your coding agent to run
  * (it already downloads and runs this script); an update of this reporter can change anything it does, as it always
  * could (turn updates off with `auto-update off`). Once it's on, when a session started since stops on a permission
  * prompt, Claude Code's prompt stays on screen as always, and the hook also opens the prompt on the thread's page in
@@ -200,8 +208,9 @@
  *
  * Install keeps the choices made before (titles, sharing, reviews, updating, answering prompts from AgentMingo, where
  * the hooks are), also after the computer was disconnected, unless a flag changes them (--approvals turns answering
- * prompts and replies on, only with the setup command's one-time code, run in your own terminal; already on, it changes
- * nothing; --no-approvals turns it off). The setup command carries a
+ * prompts and replies on, only with a setup command's one-time code made with its box ticked, wherever it runs;
+ * otherwise it stays off and install says so; already on, it changes nothing; --no-approvals turns it off). The setup
+ * command carries a
  * one-time code that works for
  * 15 minutes, which install trades for this computer's token, so the token never appears in a command line or shell
  * history (--token still works).
@@ -229,8 +238,10 @@
  *                     [--attach <files or folders>]                          attach (videos, screenshots, reports)
  *   node reporter.mjs auto-update on|off                                     updating itself
  *   node reporter.mjs approvals on [--commands] [--wait 1h] | off | status   answering permission prompts, and
- *                                                                            replies, from AgentMingo (on only in
- *                                                                            your own terminal; off unless you
+ *                                                                            replies, from AgentMingo (`approvals on`
+ *                                                                            only in your own terminal; the setup
+ *                                                                            command's box turns it on wherever
+ *                                                                            the command runs; off unless you
  *                                                                            turn it on)
  *   node reporter.mjs mcp                                                    the MCP server (Claude Code runs it)
  *   node reporter.mjs uninstall                                              remove the hooks, and disconnect
@@ -271,7 +282,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "15";
+export const VERSION = "16";
 const SCRIPT = fileURLToPath(import.meta.url);
 
 /** Hooks this reporter installs. PostToolUse is only a heartbeat, so it runs without making Claude wait. */
@@ -960,7 +971,7 @@ export function titleFromPrompt(prompt) {
 const EMAIL = /(?<![\p{L}\p{N}._%+-])[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/gu;
 const EMAIL_CUT = /(?<![\p{L}\p{N}._%+-])[\p{L}\p{N}._%+-]+@(?=[\p{N}.-]*\p{L})[\p{L}\p{N}.-]*…(?=$|[\s"”'’)\],.;:!?])/gu;
 const EMAIL_TAIL = /(?<![\p{L}\p{N}._%+-])[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]*$/u;
-const SECRET = /\b(?:sk-ant-[\w-]{10,}|sk-(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}|[rs]k_(?:live|test)_[0-9A-Za-z]{10,}|whsec_[A-Za-z0-9]{20,}|xox[a-z]-[\w-]{10,}|xapp-[\w-]{10,}|npm_[A-Za-z0-9]{30,}|(?:AKIA|ASIA)[0-9A-Z]{16}|AIza[\w-]{30,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|am[kc]_[\w-]{10,}|eyJ[\w-]{10,}(?:\.[\w-]*){0,2})/g;
+const SECRET = /\b(?:sk-ant-[\w-]{10,}|sk-(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}|[rs]k_(?:live|test)_[0-9A-Za-z]{10,}|whsec_[A-Za-z0-9]{20,}|xox[a-z]-[\w-]{10,}|xapp-[\w-]{10,}|npm_[A-Za-z0-9]{30,}|(?:AKIA|ASIA)[0-9A-Z]{16}|AIza[\w-]{30,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|am[kca]_[\w-]{10,}|eyJ[\w-]{10,}(?:\.[\w-]*){0,2})/g;
 const PRIVATE_KEY = /-----BEGIN[A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END[A-Z ]*PRIVATE KEY(?: BLOCK)?-----|$)/g;
 const URL_CREDENTIALS = /(?<=\b[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#@:]+:[^\s/?#@]+(?=@)/g;
 const AWS_SECRET = /(?<![A-Za-z0-9/+])(?<=(?<![A-Za-z])(?:aws|Aws|AWS|secret|Secret|SECRET)[^\n]{0,40})(?=[A-Za-z0-9/+]{0,39}[a-z])(?=[A-Za-z0-9/+]{0,39}[A-Z])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=])/g;
@@ -3498,7 +3509,7 @@ export function withPermissionWait(settings, waitS) {
  * Turns answering prompts from AgentMingo on (`choice`: { commands, waitS }) or off (null) on this computer: in its
  * config (on, with a new key for binding answers to prompts, which never leaves it) and in the PermissionRequest hook
  * in Claude Code's settings. Only sessions started from then on wait; the ones open keep the hook they started with.
- * The `approvals` command calls it after asking; nothing else turns it on.
+ * The `approvals` command calls it after asking; install's --approvals sets the same through installConfig.
  */
 export function setApprovals(home, choice) {
   const p = paths(home);
@@ -3540,7 +3551,9 @@ function versionsWords() {
 /** What `status` and `approvals status` say about answering prompts from AgentMingo. */
 export function approvalsLine(config) {
   const a = config && typeof config === "object" ? config.approvals : null;
-  if (!a || typeof a !== "object") return `Answering prompts and replies from AgentMingo: off (turn it on in your own terminal with: node ${SCRIPT} approvals on).`;
+  if (!a || typeof a !== "object") {
+    return `Answering prompts and replies from AgentMingo: off (to turn it on, run a new setup command from your Sessions page with its box ticked, or in your own terminal: node ${SCRIPT} approvals on).`;
+  }
   return `Answering prompts and replies from AgentMingo: on for file edits${a.commands ? ", with commands shown (to deny; allowing commands isn't offered)" : " (commands can only be denied there)"}. A prompt waits up to ${waitWords(a.waitS)} for an answer there, in sessions started since you turned it on, ${versionsWords()}. A thread waiting for you can be replied to from its page. Turn it off with: node ${SCRIPT} approvals off`;
 }
 
@@ -3561,7 +3574,8 @@ function askLine(question) {
 
 /**
  * `approvals on [--commands] [--wait 1h] | off | status`. On only from a terminal of the person's own, never from inside
- * Claude Code's Bash tool, and only after they type "yes" to what it turns on; off and status from anywhere. (--unchecked,
+ * Claude Code's Bash tool, and only after they type "yes" to what it turns on (it has no one-time code to stand for
+ * their consent, as the setup command's --approvals has); off and status from anywhere. (--unchecked,
  * from reporter 14, is still taken and changes nothing: no version list holds waiting back now but known bad ones.)
  */
 export async function approvalsCommand(home, mode, flags = {}, deps = {}) {
@@ -3578,8 +3592,9 @@ export async function approvalsCommand(home, mode, flags = {}, deps = {}) {
   }
   const env = deps.env || process.env;
   const terminal = deps.terminal ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  if (insideClaudeBash(env, terminal)) throw new Error("Run this in your own terminal: it doesn't turn on inside Claude Code's Bash tool.");
-  if (!terminal) throw new Error("Run this in a terminal of your own: it asks you to type yes.");
+  const orSetup = "Or run a new setup command from your Sessions page with its box ticked: its one-time code turns it on wherever it runs.";
+  if (insideClaudeBash(env, terminal)) throw new Error(`Run this in your own terminal: it doesn't turn on inside Claude Code's Bash tool. ${orSetup}`);
+  if (!terminal) throw new Error(`Run this in a terminal of your own: it asks you to type yes. ${orSetup}`);
   if (!config) throw new Error("Not connected yet. Run install first (the command is on the Sessions page).");
   const waitS = parseWait(flags.wait);
   if (waitS === null) throw new Error("Give --wait in minutes or hours, from 5 minutes to 8 hours, like 30m, 2h or 1h30m.");
@@ -5095,8 +5110,8 @@ export function installConfig(previous, args, url, token, approvalsOn = false) {
   const before = previous && typeof previous === "object" ? { ...previous } : {};
   delete before.connections;
   // Answering prompts and replies from AgentMingo is kept as it was, unless --no-approvals turns it off, or --approvals
-  // turns it on (`approvalsOn`: only once approvalsFromSetup found install running in the person's own terminal; the flag
-  // alone never does). Turned on: file edits, an hour's wait, and a new key for binding answers that never leaves here.
+  // turns it on (`approvalsOn`: only once approvalsFromSetup found the setup command's one-time code; the flag alone
+  // never does). Turned on: file edits, an hour's wait, and a new key for binding answers that never leaves here.
   if (args["no-approvals"]) delete before.approvals;
   else if (approvalsOn && !repliesOn(before)) {
     before.approvals = { files: true, commands: false, unchecked: false, waitS: APPROVAL_WAIT_DEFAULT_S, key: randomBytes(32).toString("base64url") };
@@ -5110,8 +5125,14 @@ export function installConfig(previous, args, url, token, approvalsOn = false) {
     reviews: args.reviews ? true : args["no-reviews"] ? false : before.reviews === true,
     autoUpdate: args["no-auto-update"] ? false : before.autoUpdate !== false,
     // Where the hooks went, for uninstall and for pointing them at launch.mjs.
-    settings: resolve(args["claude-settings"] || (typeof before.settings === "string" && before.settings) || defaultClaudeSettings()),
+    settings: installSettingsPath(before, args),
   };
+}
+
+/** Claude Code's settings file install puts the hooks in: --claude-settings, where they went before, or Claude Code's own. */
+function installSettingsPath(previous, args) {
+  const before = previous && typeof previous === "object" ? previous : {};
+  return resolve(args["claude-settings"] || (typeof before.settings === "string" && before.settings) || defaultClaudeSettings());
 }
 
 /** What install and `share-files off` say with sharing off. */
@@ -5136,7 +5157,8 @@ function keptChoices(previous, args) {
  * Trades a setup command's one-time code for this computer's connection token (over HTTPS, so the token never
  * appears in a command line, a process list or a shell history). The code works once, for 15 minutes. The answer
  * also carries an empty report's (`report`: whose connection it is, which repositories report), so install needn't
- * ask again after the code is spent; null when AgentMingo couldn't say.
+ * ask again after the code is spent; null when AgentMingo couldn't say. `approvals`: true only when AgentMingo says
+ * the code was made with the box "Answer prompts and reply to threads from AgentMingo" ticked (anything else, false).
  */
 export async function tradeSetupCode(url, code, org) {
   let res;
@@ -5154,7 +5176,7 @@ export async function tradeSetupCode(url, code, org) {
   const token = body && body.data && typeof body.data.token === "string" ? body.data.token : null;
   if (!res.ok || !token) throw new Error(`AgentMingo didn't take this setup command: ${(body && body.error && body.error.message) || `HTTP ${res.status}`}`);
   const report = body.data.report;
-  return { token, report: report && typeof report === "object" ? report : null };
+  return { token, report: report && typeof report === "object" ? report : null, approvals: body.data.approvals === true };
 }
 
 /** What install says about which threads report to an organization (its answer's lists). */
@@ -5170,34 +5192,44 @@ function scopeSaid(org, data) {
 }
 
 /**
- * Whether install's --approvals (the setup command's box "Answer prompts and reply to threads from AgentMingo", ticked
- * by default) turns answering prompts and replies on. Already on (`previous`, the config from before), it changes
- * nothing and refuses nothing: a run again from provisioning goes through. To turn it on it needs, all three: the
- * setup command's one-time code (--code, made on the signed-in Sessions page with the box ticked; the older --token
- * form, whose token is readable in config.json, never turns it on), a real terminal, and not Claude Code's own Bash
- * tool (insideClaudeBash). Otherwise it refuses, saying why, before anything changes or the setup code is used. These
- * checks keep a mistake or a stray command from turning it on; they don't stop a program on the computer that sets out
- * to fake a terminal. The command already downloads and runs AgentMingo's code, so the flag adds no trust of its own:
- * what matters is that a person runs it, and that install says plainly what it turned on.
+ * What install's --approvals (the setup command's box "Answer prompts and reply to threads from AgentMingo", ticked
+ * by default) does here, decided once the code is traded (`traded`, tradeSetupCode's answer): "on", it turns answering
+ * prompts and replies on; "no_code" (the older --token form) or "unticked" (a code made with the box unticked), it
+ * can't, and they stay off; null, there's nothing to do (no --approvals, --no-approvals, or on already: `previous`, the
+ * config from before, keeps it as it was).
+ * It turns it on with a setup command's one-time code (--code) made with the box ticked, wherever install runs: a
+ * terminal, an editor, or a coding agent's Bash tool the person pasted the command into. The code is the person's
+ * consent: it's made only for them, signed in (the Sessions page or the setup guide), it works once, and for 15
+ * minutes; and it carries the box's choice, which AgentMingo says back when it's traded, so --approvals added to a
+ * command made with the box unticked doesn't turn it on. The older --token form never turns it on (its token sits
+ * readable in config.json, so a command carrying it shows no one just asked). None of it ever fails the install, which
+ * connects the computer all the same and says what happened (approvalsStayedOffSaid). The command already downloads
+ * and runs AgentMingo's code, so the flag adds no trust of its own. `approvals on`, with no code, keeps its own checks
+ * (a typed yes, in a real terminal, outside Claude Code's Bash tool).
  */
-export function approvalsFromSetup(args, previous = null, env = process.env, terminal = Boolean(process.stdin.isTTY && process.stdout.isTTY)) {
-  if (!args.approvals || args["no-approvals"]) return false;
-  if (repliesOn(previous)) return false;
-  const how = "Nothing was changed, and the setup code wasn't used: paste the command into a terminal of your own, or untick “Answer prompts and reply to threads from AgentMingo” on the Sessions page for a command without it.";
-  if (!args.code) {
-    throw new Error(
-      `--approvals turns on answering prompts and replies from AgentMingo only with the setup command's one-time code (--code), from your Sessions page. Nothing was changed. Copy a new command there, or turn it on with: node ${SCRIPT} approvals on`,
-    );
+export function approvalsFromSetup(args, previous = null, traded = null) {
+  if (!args.approvals || args["no-approvals"] || repliesOn(previous)) return null;
+  if (!args.code) return "no_code";
+  return traded && traded.approvals === true ? "on" : "unticked";
+}
+
+/**
+ * What install says when its --approvals left answering prompts and replies off: `why` is approvalsFromSetup's
+ * "no_code" (the --token form) or "unticked" (a code made with the box unticked).
+ */
+export function approvalsStayedOffSaid(why) {
+  const box = "the box “Answer prompts and reply to threads from AgentMingo”";
+  const or = `, or in a terminal of your own: node ${SCRIPT} approvals on`;
+  if (why === "unticked") {
+    return `Answering prompts and replies from AgentMingo stayed off: this setup command's one-time code was made with ${box} unticked, and adding --approvals to the command doesn't change that. To turn it on, run a new setup command from your Sessions page with that box ticked${or}`;
   }
-  if (insideClaudeBash(env, terminal)) throw new Error(`--approvals doesn't turn on answering prompts and replies from AgentMingo inside Claude Code's Bash tool. ${how}`);
-  if (!terminal) throw new Error(`--approvals turns on answering prompts and replies from AgentMingo only when you run the setup command in a terminal yourself. ${how}`);
-  return true;
+  return `Answering prompts and replies from AgentMingo stayed off: --approvals turns it on only with a setup command's one-time code, and this command has none (it has --token). To turn it on, run a new setup command from your Sessions page with ${box} ticked${or}`;
 }
 
 /** What install says when its --approvals turned answering prompts and replies on. */
 function approvalsTurnedOnSaid() {
   return [
-    "Turned on (the setup command's --approvals, with its one-time code, run in a terminal): answering prompts and replies from AgentMingo, on this computer.",
+    "Turned on (the setup command's --approvals, with its one-time code from your Sessions page): answering prompts and replies from AgentMingo, on this computer.",
     `- A thread's permission prompt also opens on its page in AgentMingo, for you alone (not teammates or admins), and waits there up to ${waitWords(APPROVAL_WAIT_DEFAULT_S)}: Allow once for a file edit inside the repository (not files that can run code or change settings by themselves), Deny for anything. Commands can only be denied there; allowing one stays in your terminal. The terminal prompt stays on screen, and whichever is answered first counts.`,
     "- A thread that finishes its turn and waits for you can be answered from its page (Continue, Yes, No or a short text): after each reply its watcher listens up to 8 hours (until you type in the thread), and wakes the thread with yours, as your words. Replying needs a sign-in in that browser within the last day.",
     "- Sent: a prompt's tool, and for a file edit its path in the repository and line counts (never the change); your replies come to this computer. Someone who gets into your AgentMingo account could answer or reply for you.",
@@ -5211,17 +5243,21 @@ async function install(args) {
   if (!args.url || (!args.token && !args.code)) throw new Error("Usage: node reporter.mjs install --url https://agentmingo.com --org <organization> --code amc_… (copy the command from the Sessions page)");
   const home = resolve(args.home || defaultHome());
   const p = paths(home);
-  // Before anything changes, or the one-time code is used: --approvals turns it on only with that code, in a terminal.
-  const approvalsOn = approvalsFromSetup(args, readJson(p.config) || readJson(`${p.config}.removed`));
   const url = args.url.replace(/\/+$/, "");
-  // The setup command carries a one-time code; one from before carries the token itself (--token), which still works.
-  const traded = args.code ? await tradeSetupCode(url, args.code, args.org) : null;
-  const token = traded ? traded.token : args.token;
   const current = readJson(p.config);
   // After AgentMingo removed this computer's only connection (config.json.removed), the choices made before still
   // stand; that connection doesn't.
   const previous = current || readJson(`${p.config}.removed`);
-  const config = installConfig(previous, args, url, token, approvalsOn);
+  // Claude Code's settings are checked before the one-time code is spent or anything is written: settings that aren't
+  // valid JSON stop install while the code still works.
+  readSettings(installSettingsPath(previous, args));
+  // The setup command carries a one-time code; one from before carries the token itself (--token), which still works.
+  const traded = args.code ? await tradeSetupCode(url, args.code, args.org) : null;
+  const token = traded ? traded.token : args.token;
+  // --approvals turns it on only with a one-time code made with the box ticked (AgentMingo says so in the trade),
+  // wherever install runs; otherwise it stays off, and install connects all the same.
+  const approvals = approvalsFromSetup(args, previous, traded);
+  const config = installConfig(previous, args, url, token, approvals === "on");
   const settingsFile = config.settings;
   // A traded code's answer says whose connection it is: asking again could fail after the code was spent.
   const check = traded && traded.report ? { ok: true, body: { data: traded.report } } : await post(config, []);
@@ -5287,7 +5323,8 @@ async function install(args) {
   if (config.shareFiles) console.log("Sharing edited file paths: sessions in the same repository get a short note about each other.");
   else console.log(NOT_SHARING);
   if (config.reviews) console.log(`Review results on: review bots' and CI's results on a session's pull request come back to that session, and can wake it when it's idle (up to 3 rounds per pull request; a merge conflict or a pull request checklist step wakes it too). To stop: node ${SCRIPT} reviews off`);
-  if (approvalsOn && !repliesOn(previous)) for (const line of approvalsTurnedOnSaid()) console.log(line);
+  if (approvals === "on" && repliesOn(config)) for (const line of approvalsTurnedOnSaid()) console.log(line);
+  else if (approvals === "no_code" || approvals === "unticked") console.log(approvalsStayedOffSaid(approvals));
   else console.log(approvalsLine(config));
   console.log(watchLine(config));
   console.log(
