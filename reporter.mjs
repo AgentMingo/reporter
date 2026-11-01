@@ -24,7 +24,8 @@
  *
  * What it sends for those, every request but setting up and downloading an update (below) carrying this computer's
  * connection token (`authorization: Bearer amk_…`) and the script's name and version (user-agent
- * `agentmingo-reporter/` and a number), and like any request, your IP address:
+ * `agentmingo-reporter/` and a number, and from version 19 this computer's platform, like "(darwin)"), and like any
+ * request, your IP address:
  * - What happens in each thread, and when: it started, you sent a message, it's working (at most every five minutes,
  *   and at once after a tool call that ran long), with how long the tool call behind it ran, it waits for you, it was
  *   answered, it replied (and whether it was a short turn to keep listening, below), it ended. Each with its time, a
@@ -143,7 +144,8 @@
  * On a computer connected
  * to several organizations, a step report and `start` go first to the organization of the folder's repository, and to
  * the next only if that one doesn't know the step or the task. Install sends the setup command's one-time code, the
- * organization's short name and the script's version, and nothing else; when it replaces an earlier connection, and
+ * organization's short name, the script's version and (from reporter 19 on) the computer's platform, and nothing
+ * else; when it replaces an earlier connection, and
  * on uninstall, it asks AgentMingo to disconnect that one. Updating downloads the new script without its token and
  * without anything about you or your threads. It doesn't send your code or other files (unless Claude attaches one to
  * a step), the commands Claude runs (only their kind, and git's subcommand, are counted), tool input, or the rest of
@@ -200,7 +202,10 @@
  * hooks, the rules and the MCP server out and disconnects this computer; it leaves ~/.agentmingo and the copy of
  * your settings for you to delete. With --lean-git, install also adds the lean git rules to ~/.claude/CLAUDE.md, and
  * keeps a copy of that file as it was beside it (CLAUDE.md.agentmingo-backup), when there was one; `lean-git off`
- * takes the rules out.
+ * takes the rules out. With starting threads from AgentMingo on (below), install also writes the helper's LaunchAgent,
+ * ~/Library/LaunchAgents/com.agentmingo.start-from-web.plist (the whole file is AgentMingo's: it's never written over
+ * or removed when it doesn't say so in its first lines), and starts it with launchctl; `start-from-web off` and
+ * `uninstall` stop it and remove the file.
  *
  * On macOS and Linux, hooks run it through reporter.sh, which uses the Node.js install ran with, or the node on
  * your PATH once that one's gone (an nvm or Homebrew upgrade), and does nothing when there's none.
@@ -218,6 +223,28 @@
  * it prints the folder and how to move the thread there. The start_task MCP tool does the same for a thread that's
  * asked to work on a task: Claude asks you before it switches the thread into the task's folder (Claude Code's
  * EnterWorktree), or gives you a link that opens a new Claude Code session there.
+ *
+ * Starting threads from AgentMingo (from version 19; macOS only for now; off unless you turn it on here): with it on,
+ * "Start on my computer" on a task's page in AgentMingo, from any device you're signed in on, starts a thread on this
+ * Mac. A small helper (a LaunchAgent, ~/Library/LaunchAgents/com.agentmingo.start-from-web.plist, that runs this
+ * script's `start-from-web helper` while you're logged in) asks AgentMingo about every 10 seconds, while the Mac is
+ * awake, whether you pressed it, sending only that it's on and whether answering prompts from AgentMingo is on here.
+ * When you did, AgentMingo sends a start's id and the task's key, nothing else. The helper checks both, takes the start
+ * (so it runs once), and opens Terminal (`open -g -a Terminal`) on a small file in ~/.agentmingo/starts that runs
+ * `run-start <id>` there: a fixed command built on this computer. In that window run-start makes the task's folder as
+ * `start` does (the same safe .env files), and runs Claude Code there with the prompt "Work on <task key>", as you'd
+ * start it yourself: Claude Code's own permission settings apply (no permission flag, and no settings or MCP config of
+ * AgentMingo's). AgentMingo hears how it went (opened, started, or why it didn't, in one line with your home folder
+ * shown as ~, and the repository's name), and the thread's first report says which start it came from. It opens at
+ * most 6 starts an hour, none within 15 seconds of the last, whatever AgentMingo sends. Only you can press it, signed
+ * in as yourself (not teammates or admins): someone who gets into your AgentMingo account could start a thread on a
+ * task here, and answer its prompts if answering them from AgentMingo is on. Turn it on with the setup command's box
+ * "Start threads on this computer from AgentMingo" (install's --start-from-web, with its one-time code), or with
+ * `start-from-web on` in your own terminal (it asks you to type yes). Turn it off with `start-from-web off` (it stops
+ * the helper and removes its LaunchAgent; so does uninstall), or on your Account page in AgentMingo, one organization
+ * at a time (at its next check the helper stops taking that organization's starts, and stops once none is left). A
+ * thread that starts this way may still ask, in its Terminal window, what only this Mac can answer (whether to trust a
+ * new folder, say). `start-from-web helper --once` runs one of the helper's rounds by hand and prints each step.
  *
  * When the task's project has a workflow for threads, the session follows it: AgentMingo hands it one
  * step at a time (plan, build, test, open the pull request…) as a note, and Claude reports each step
@@ -241,8 +268,8 @@
  * (403: the account or organization is suspended, or you were made a viewer), nothing is asked or sent there for an
  * hour, doubling to a day, or until install runs again.
  *
- * Install keeps the choices made before (titles, sharing, reviews, updating, answering prompts from AgentMingo, where
- * the hooks are), also after the computer was disconnected, unless a flag changes them (--approvals turns answering
+ * Install keeps the choices made before (titles, sharing, reviews, updating, answering prompts from AgentMingo, starting
+ * threads from AgentMingo, where the hooks are), also after the computer was disconnected, unless a flag changes them (--approvals turns answering
  * prompts and replies on, only with a setup command's one-time code made with its box ticked, wherever it runs;
  * otherwise it stays off and install says so; already on, it changes nothing; --no-approvals turns it off). The setup
  * command carries a
@@ -253,8 +280,8 @@
  *   node reporter.mjs install --url https://agentmingo.com --org acme      connect this machine (from any
  *                     --code amc_… [--no-titles] [--lean-git]                folder; safe to run again)
  *                     [--share-files|--no-share-files] [--reviews|--no-reviews] [--no-mcp] [--no-auto-update]
- *                     [--approvals|--no-approvals]
- *   node reporter.mjs status                                                where things stand (and where to
+ *                     [--approvals|--no-approvals] [--start-from-web|--no-start-from-web]
+ *   node reporter.mjs status                                               where things stand (and where to
  *                                                                            look when something doesn't work)
  *   node reporter.mjs repos [add [owner/name] | remove <owner/name>]         which repositories report, and adding
  *                     [--org <organization>]                                 one of yours (this folder's) or not
@@ -278,7 +305,14 @@
  *                                                                            command's box turns it on wherever
  *                                                                            the command runs; off unless you
  *                                                                            turn it on)
- *   node reporter.mjs mcp                                                    the MCP server (Claude Code runs it)
+ *   node reporter.mjs start-from-web on | off | status                       starting threads on this Mac from
+ *                                                                            AgentMingo (`on` only in your own
+ *                                                                            terminal; the setup command's box
+ *                                                                            turns it on too; off unless you
+ *                                                                            turn it on)
+ *   node reporter.mjs start-from-web helper [--once]                         the helper (launchd runs it)
+ *   node reporter.mjs run-start <id> [--no-launch]                           one start (its Terminal window runs it)
+ *   node reporter.mjs mcp                                                   the MCP server (Claude Code runs it)
  *   node reporter.mjs uninstall                                              remove the hooks, and disconnect
  *                                                                            this computer in AgentMingo
  *
@@ -287,9 +321,11 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import {
+  accessSync,
   appendFileSync,
   chmodSync,
   closeSync,
+  constants as fsConstants,
   copyFileSync,
   existsSync,
   fstatSync,
@@ -311,14 +347,19 @@ import {
   writeSync,
 } from "node:fs";
 import { createServer } from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { homedir, tmpdir, uptime } from "node:os";
 import { createInterface } from "node:readline";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "18";
+export const VERSION = "19";
 const SCRIPT = fileURLToPath(import.meta.url);
+/**
+ * What every request says it is: the script's name and version and, from version 19, this computer's platform (darwin,
+ * linux, win32), so AgentMingo offers starting threads from its pages only to a Mac.
+ */
+export const USER_AGENT = `agentmingo-reporter/${VERSION} (${process.platform})`;
 
 /** Hooks this reporter installs. PostToolUse is only a heartbeat, so it runs without making Claude wait. */
 export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "Notification", "Stop", "StopFailure", "SessionEnd"];
@@ -458,6 +499,14 @@ export function paths(home) {
     /** Where version 9 kept the version before an update: Node won't load it from there (it goes by the extension). */
     legacyPrev: join(home, "reporter.mjs.prev"),
     next: join(home, "reporter.next.mjs"),
+    /** Starting threads from AgentMingo: each start's files while it runs (its Terminal window's command), 0700. */
+    starts: join(home, "starts"),
+    /** The helper's last check of each organization, the starts it opened in the last hour, and how the last one went. */
+    startsState: join(home, "state", "starts.json"),
+    /** The helper's process id, so only one runs. */
+    helperPid: join(home, "state", "start-helper.pid"),
+    /** Where launchd writes what the helper prints on stderr (it shouldn't print anything). */
+    helperLog: join(home, "helper.log"),
   };
 }
 
@@ -584,7 +633,12 @@ export function connectionsOf(config) {
   for (const key of SHARED_SETTINGS) if (key in config) shared[key] = config[key];
   return listed
     .filter((c) => c && typeof c.url === "string" && typeof c.token === "string")
-    .map((c) => ({ ...shared, url: c.url, token: c.token, org: typeof c.org === "string" && c.org ? c.org : null, repos: strings(c.repos), added: strings(c.added), known: c.known === true }));
+    .map((c) => ({ ...shared, url: c.url, token: c.token, org: typeof c.org === "string" && c.org ? c.org : null, repos: strings(c.repos), added: strings(c.added), known: c.known === true, ...startsOff(c) }));
+}
+
+/** `starts: false` on a connection AgentMingo turned starting threads off for (its Account page), kept as it is. */
+function startsOff(c) {
+  return c && c.starts === false ? { starts: false } : {};
 }
 
 /** A connection's name on this computer: its organization's slug ("default" for one from before they were named). */
@@ -801,7 +855,7 @@ async function postToOwner(conns, path, body, timeoutMs, post = postJson) {
 
 /** Saves the connections, with the first one's address and token also at the top level for older reporters. */
 function saveConnections(p, config, list) {
-  const next = { ...config, connections: list.map((c) => ({ org: c.org, url: c.url, token: c.token, repos: c.repos, added: c.added || [], known: c.known === true })) };
+  const next = { ...config, connections: list.map((c) => ({ org: c.org, url: c.url, token: c.token, repos: c.repos, added: c.added || [], known: c.known === true, ...startsOff(c) })) };
   if (list[0]) {
     next.url = list[0].url;
     next.token = list[0].token;
@@ -1237,9 +1291,10 @@ export function fromCursor(raw) {
  * sharing on) and review results that arrived since the last message (with reviews on). A thread in a
  * repository no organization lists (or in a folder that isn't a git repository) gets nothing and queues
  * nothing; one whose organization's list isn't known yet queues its event for the sender, which learns
- * the list first, and gets no notes meanwhile.
+ * the list first, and gets no notes meanwhile. A thread started from AgentMingo (run-start set AGENTMINGO_START in its
+ * environment, `env`) says which start it came from on its first SessionStart event, once.
  */
-export function runHook(home, raw, now = Date.now(), flush = true) {
+export function runHook(home, raw, now = Date.now(), flush = true, env = process.env) {
   if (fromCursor(raw)) return { event: null, context: null };
   const p = paths(home);
   try {
@@ -1312,6 +1367,12 @@ export function runHook(home, raw, now = Date.now(), flush = true) {
     if (event) {
       if (stepGiven) event.deliveredStep = stepGiven;
       if (keepAlive && event.kind === "stop") event.keepAlive = true;
+      // A thread run-start began for a start pressed on AgentMingo: its first report ties it to that start.
+      const started = typeof env.AGENTMINGO_START === "string" && START_ID.test(env.AGENTMINGO_START) ? env.AGENTMINGO_START : null;
+      if (started && event.kind === "start" && (input.source === "startup" || !input.source) && !state.startSent) {
+        event.start = started;
+        state.startSent = started;
+      }
       // Before its organization's list is known, queued without one: the sender learns the lists, then sends it there or drops it.
       writeOutbox(p, event, state.conn);
       state.lastKind = event.kind;
@@ -1557,7 +1618,7 @@ export async function askTask(config, branch, repo, heard = () => {}) {
   try {
     const res = await fetch(`${config.url.replace(/\/+$/, "")}/api/v1/agent-sessions/task`, {
       method: "POST",
-      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json", "user-agent": `agentmingo-reporter/${VERSION}` },
+      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json", "user-agent": USER_AGENT },
       body: JSON.stringify({ branch, ...(repo ? { repo } : {}) }),
       signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
     });
@@ -1701,7 +1762,7 @@ async function postJson(config, path, body, timeoutMs) {
   try {
     const res = await fetch(`${config.url.replace(/\/+$/, "")}${path}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json", "user-agent": `agentmingo-reporter/${VERSION}` },
+      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json", "user-agent": USER_AGENT },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -1804,7 +1865,7 @@ async function uploadFile(config, step, name, data) {
   try {
     const res = await fetch(`${config.url.replace(/\/+$/, "")}/api/v1/agent-sessions/steps/files?step=${encodeURIComponent(step)}&name=${encodeURIComponent(name)}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/octet-stream", "user-agent": `agentmingo-reporter/${VERSION}` },
+      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/octet-stream", "user-agent": USER_AGENT },
       body: data,
       signal: AbortSignal.timeout(60_000),
     });
@@ -2027,11 +2088,82 @@ export function switchGuidance(taskKey, folder, branch, dirs = []) {
   ].join("\n");
 }
 
+/** An error that says why, for a start from AgentMingo to report (REPORTER_START_FAILURES), and the repository when known. */
+function startError(message, reason, repo) {
+  const e = new Error(message);
+  e.reason = reason;
+  if (repo) e.repo = repo;
+  return e;
+}
+
+/** A repository's name as AgentMingo sends it: "owner/name", neither part "." or "..". */
+const REPOSITORY_NAME = /^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/;
+/** The branch AgentMingo names for a task: its key in capitals, then words of its title in small letters and digits. */
+const TASK_BRANCH = /^[A-Z][A-Z0-9]{1,9}-\d{1,7}(-[a-z0-9]+)*$/;
+
+function repositoryNameOk(name) {
+  return typeof name === "string" && REPOSITORY_NAME.test(name) && name.split("/").every((part) => part !== "." && part !== "..");
+}
+
 /**
- * What `start` and the start_task tool share: asks AgentMingo for the task (its branch, and the repository with its main
- * branch), then makes the task's folder next to this computer's clone (<clone>-<KEY>) on that branch, with the safe
- * .env files (copyEnvFiles), or finds the one made before. Prints nothing: `lines` says what it did. Returns { taskKey,
- * title, branch, folder, clone, others, lines }.
+ * A main branch's name git takes as it is: "HEAD" (the branch the clone came from), or a branch name that can't be read
+ * as an option or a path out of refs (no leading -, no .., no //, no trailing / or .lock) and that git itself calls one.
+ */
+function mainBranchOk(name, run) {
+  if (name === "HEAD") return true;
+  if (typeof name !== "string" || !/^[A-Za-z0-9._/-]{1,100}$/.test(name) || name.startsWith("-") || name.includes("..") || name.includes("//") || name.endsWith("/") || name.endsWith(".lock")) return false;
+  return run(homedir(), ["check-ref-format", "--branch", name]) === name;
+}
+
+/**
+ * AgentMingo's answer to `/start` for task `key`, checked before any of it reaches git or a path: the task's key (the one
+ * asked for, in any case), its branch (the key, or the key and words of its title), the repository's names and main
+ * branch. Another repository whose name isn't one is dropped. Throws (reason "refused") when anything else isn't what
+ * AgentMingo sends, so a branch like "--upload-pack=x" or "WEB-12/../x" never becomes an argument or a folder.
+ */
+export function checkedStart(data, key, run = git) {
+  const refuse = (what) => startError(`AgentMingo's answer for ${TASK_KEY.test(key || "") ? key : "the task"} didn't pass this computer's checks (${what}), so nothing was made.`, "refused");
+  if (!data || typeof data !== "object") throw refuse("no answer");
+  const taskKey = data.key;
+  if (typeof taskKey !== "string" || !TASK_KEY.test(taskKey) || taskKey.toLowerCase() !== String(key).toLowerCase()) throw refuse("the task's key");
+  const branch = data.branch;
+  const upper = taskKey.toUpperCase();
+  if (typeof branch !== "string" || branch.length > 100 || !TASK_BRANCH.test(branch) || (branch !== upper && !branch.startsWith(`${upper}-`))) throw refuse("the branch");
+  const repository = data.repository;
+  if (!repository || typeof repository !== "object" || !repositoryNameOk(repository.fullName)) throw refuse("the repository's name");
+  const formerNames = Array.isArray(repository.formerNames) ? repository.formerNames : [];
+  if (!formerNames.every(repositoryNameOk)) throw refuse("the repository's earlier names");
+  if (!mainBranchOk(repository.defaultBranch, run)) throw refuse("the main branch");
+  const others = (Array.isArray(data.others) ? data.others : []).filter(
+    (o) => o && typeof o === "object" && repositoryNameOk(o.fullName) && (o.formerNames === undefined || (Array.isArray(o.formerNames) && o.formerNames.every(repositoryNameOk))),
+  );
+  return {
+    key: taskKey,
+    title: typeof data.title === "string" ? data.title : "",
+    branch,
+    repository: { fullName: repository.fullName, formerNames, defaultBranch: repository.defaultBranch },
+    others,
+  };
+}
+
+/** Characters a terminal acts on or that turn text around: control characters (ESC among them), DEL, and bidi overrides. */
+const TERMINAL_UNSAFE = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/g;
+
+/**
+ * Text from AgentMingo (a task's title someone wrote, or Jira sent) safe to print on a terminal: line breaks and tabs
+ * become spaces, and other control characters (an escape sequence that would recolour or retitle the window, say),
+ * DEL and bidi overrides are taken out.
+ */
+export function terminalSafe(value) {
+  return String(value ?? "").replace(TERMINAL_UNSAFE, (c) => (c === "\n" || c === "\r" || c === "\t" ? " " : ""));
+}
+
+/**
+ * What `start`, the start_task tool and run-start share: asks AgentMingo for the task (its branch, and the repository with
+ * its main branch; `opts.connection`, only that connection: a start from AgentMingo is its organization's), checks the
+ * answer (checkedStart), then makes the task's folder next to this computer's clone (<clone>-<KEY>) on that branch, with
+ * the safe .env files (copyEnvFiles), or finds the one made before. Prints nothing: `lines` says what it did. Returns {
+ * taskKey, title, branch, folder, clone, repository, others, lines }. Its errors say why (`reason`, for run-start).
  */
 export async function taskFolder(home, key, opts = {}, deps = {}) {
   const p = paths(home);
@@ -2041,34 +2173,47 @@ export async function taskFolder(home, key, opts = {}, deps = {}) {
   const run = deps.git || git;
   const visible = deps.gitVisible || gitVisible;
   const cwd = deps.cwd || process.cwd();
+  const post = deps.post || postJson;
+  const body = { task: key, ...(opts.repo ? { repo: opts.repo } : {}) };
   // The task is one organization's: this folder's first, then the others this computer reports to.
-  const { res } = await postToOwner(connectionsFrom(config, cwd), "/api/v1/agent-sessions/start", { task: key, ...(opts.repo ? { repo: opts.repo } : {}) }, 15_000, deps.post || postJson);
-  if (!res.ok || !res.data) throw new Error((res.error && res.error.message) || `AgentMingo didn't answer (HTTP ${res.status}).`);
-  const { key: taskKey, title, branch, repository } = res.data;
-  const clone = findClone(p, repository, opts.in, cwd, run);
+  const { res } = opts.connection ? { res: await post(opts.connection, "/api/v1/agent-sessions/start", body, 15_000) } : await postToOwner(connectionsFrom(config, cwd), "/api/v1/agent-sessions/start", body, 15_000, post);
+  if (!res.ok || !res.data) throw startError((res.error && res.error.message) || `AgentMingo didn't answer (HTTP ${res.status}).`, "task_refused");
+  const { key: taskKey, title, branch, repository, others } = checkedStart(res.data, key, run);
+  const repo = repository.fullName;
+  let clone;
+  try {
+    clone = findClone(p, repository, opts.in, cwd, run);
+  } catch (e) {
+    throw startError(e.message, "no_clone", repo);
+  }
   rememberClone(p, clone, run);
   const folder = join(dirname(clone), `${basename(clone)}-${taskKey}`);
-  const lines = [`${taskKey}: ${label(title, 200)}`];
-  if (existsSync(folder)) {
-    const there = cloneOf(folder, run);
-    if (!there || there.clone !== clone) throw new Error(`${folder} already exists and isn't a worktree of your ${repository.fullName} clone. Move it, or use --in.`);
-    lines.push(`Using the folder you already have for it: ${folder}`);
-  } else {
-    if (!visible(clone, ["fetch", "origin"])) throw new Error(`Couldn't fetch from origin in ${clone}.`);
-    const local = run(clone, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
-    const pushed = !local && run(clone, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]);
-    // A repository AgentMingo knows only by name (one you added with `repos add`) starts from the branch the clone was
-    // made from, origin/HEAD, which a clone made without `git clone` may not have.
-    if (!local && !pushed && repository.defaultBranch === "HEAD" && !run(clone, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD"])) {
-      throw new Error(`Your clone of ${repository.fullName} doesn't say which branch is origin's main one. Run this in ${clone}, then start again: git remote set-head origin --auto`);
+  const lines = [`${taskKey}: ${label(terminalSafe(title), 200)}`];
+  try {
+    if (existsSync(folder)) {
+      const there = cloneOf(folder, run);
+      if (!there || there.clone !== clone) throw startError(`${folder} already exists and isn't a worktree of your ${repo} clone. Move it, or use --in.`, "folder_taken");
+      lines.push(`Using the folder you already have for it: ${folder}`);
+    } else {
+      if (!visible(clone, ["fetch", "origin"])) throw startError(`Couldn't fetch from origin in ${clone}.`, "fetch_failed");
+      const local = run(clone, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
+      const pushed = !local && run(clone, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]);
+      // A repository AgentMingo knows only by name (one you added with `repos add`) starts from the branch the clone was
+      // made from, origin/HEAD, which a clone made without `git clone` may not have.
+      if (!local && !pushed && repository.defaultBranch === "HEAD" && !run(clone, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD"])) {
+        throw startError(`Your clone of ${repo} doesn't say which branch is origin's main one. Run this in ${clone}, then start again: git remote set-head origin --auto`, "no_main_branch");
+      }
+      // A new branch doesn't track the main branch, so pushing it never goes there.
+      const args = local ? [folder, branch] : pushed ? ["--track", "-b", branch, folder, `origin/${branch}`] : ["--no-track", "-b", branch, folder, `origin/${repository.defaultBranch}`];
+      if (!visible(clone, ["worktree", "add", ...args])) throw startError(`Couldn't make ${folder} on ${branch}.`, "worktree_failed");
+      lines.push(`Made ${folder} on ${branch}${local || pushed ? "" : `, from origin/${repository.defaultBranch}`}.`);
+      if (!opts.noEnv) lines.push(...envLines(copyEnvFiles(clone, folder, run, Boolean(opts.envAll)), Boolean(opts.envAll)));
     }
-    // A new branch doesn't track the main branch, so pushing it never goes there.
-    const args = local ? [folder, branch] : pushed ? ["--track", "-b", branch, folder, `origin/${branch}`] : ["--no-track", "-b", branch, folder, `origin/${repository.defaultBranch}`];
-    if (!visible(clone, ["worktree", "add", ...args])) throw new Error(`Couldn't make ${folder} on ${branch}.`);
-    lines.push(`Made ${folder} on ${branch}${local || pushed ? "" : `, from origin/${repository.defaultBranch}`}.`);
-    if (!opts.noEnv) lines.push(...envLines(copyEnvFiles(clone, folder, run, Boolean(opts.envAll)), Boolean(opts.envAll)));
+  } catch (e) {
+    if (e && typeof e === "object" && !e.repo) e.repo = repo;
+    throw e;
   }
-  return { taskKey, title, branch, folder, clone, others: Array.isArray(res.data.others) ? res.data.others : [], lines };
+  return { taskKey, title, branch, folder, clone, repository, others, lines };
 }
 
 /**
@@ -2081,13 +2226,13 @@ function extraDirs(p, t, run) {
   return clones.length ? [...new Set([dirname(t.clone), ...clones.map((c) => dirname(c))])] : [];
 }
 
-/** Runs Claude Code in this terminal until it ends, and returns its exit code. */
-function launch(cli, args, cwd) {
+/** Runs Claude Code in this terminal until it ends (with `env`, this process's own unless given), and returns its exit code. */
+function launch(cli, args, cwd, env) {
   return new Promise((done) => {
     // Ctrl+C is Claude Code's: this process waits for it to end instead of ending first.
     const ignore = () => {};
     process.on("SIGINT", ignore);
-    const child = spawn(cli, args, { cwd, stdio: "inherit" });
+    const child = spawn(cli, args, { cwd, stdio: "inherit", ...(env ? { env } : {}) });
     const finish = (code) => {
       process.off("SIGINT", ignore);
       done(code);
@@ -2132,6 +2277,812 @@ export async function startTask(home, key, opts = {}, deps = {}) {
   if (dirs.length) console.log(`Claude can also work in ${dirs.join(", ")}, for the other repositories the plan may name.`);
   // The prompt goes first: --add-dir takes every argument after it.
   return (deps.launch || launch)(cli, [prompt, ...(dirs.length ? ["--add-dir", ...dirs] : [])], folder);
+}
+
+// ---------------------------------------------------------------------------
+// Starting threads from AgentMingo (macOS): a helper opens Terminal on a start pressed there
+// ---------------------------------------------------------------------------
+
+/** The first reporter version that starts threads from AgentMingo. AgentMingo keeps copies of these, which a test of its own keeps the same. */
+export const START_FROM_WEB_VERSION = 19;
+/** Where the helper asks for starts (check), takes one so it runs once (claim), and says how it went (result). */
+export const START_FROM_WEB_PATHS = { check: "/api/v1/agent-sessions/starts/check", claim: "/api/v1/agent-sessions/starts/claim", result: "/api/v1/agent-sessions/starts/result" };
+/** A start's id as AgentMingo makes them. Nothing else is ever used in a file's name or a command. */
+export const START_ID = /^c[a-z0-9]{20,32}$/;
+/** Why a start didn't start, as this computer says it. */
+export const REPORTER_START_FAILURES = [
+  "refused",
+  "busy",
+  "terminal_failed",
+  "no_clone",
+  "fetch_failed",
+  "no_main_branch",
+  "folder_taken",
+  "worktree_failed",
+  "folder_blocked",
+  "task_refused",
+  "claude_missing",
+  "turned_off",
+  "error",
+];
+/** The helper's LaunchAgent: its label, and its file's name in ~/Library/LaunchAgents. */
+export const START_FROM_WEB_LABEL = "com.agentmingo.start-from-web";
+/** How often the helper asks AgentMingo while nothing waits, unless AgentMingo says otherwise (nextPollMs). */
+export const START_POLL_DEFAULT_MS = 10_000;
+/** How long a start waits on AgentMingo for this computer to take it. */
+export const START_EXPIRES_MS = 120_000;
+/** However AgentMingo answers, the helper asks at most this often, and at least this often. */
+const START_POLL_MIN_MS = 5_000;
+const START_POLL_MAX_MS = 300_000;
+/** The most starts the helper opens in an hour, and the least time between two, whatever AgentMingo sends. */
+export const START_OPENS_PER_HOUR = 6;
+export const START_OPENS_APART_MS = 15_000;
+/** After AgentMingo didn't answer the helper: 30 seconds, doubling to 5 minutes. */
+const START_RETRY_FIRST_MS = 30_000;
+/** A start's files left this long (a window closed mid-way) are taken away. */
+const START_FILES_KEEP_MS = 86_400_000;
+/** helper.log is emptied past this size (the helper writes nothing there itself; launchd puts what it prints there). */
+const HELPER_LOG_MAX_BYTES = 1_000_000;
+/** A helper's pid file not written for this long was left by one that's gone (its pid may be another program's now). */
+const HELPER_PID_STALE_MS = 10 * 60_000;
+/** The helper's exit code when this computer has a newer reporter: launchd starts it again, as the new version. */
+export const HELPER_NEW_VERSION = 75;
+/** The line that says a LaunchAgent is this reporter's: it never changes or removes one without it. */
+export const START_HELPER_MARKER = "<!-- AgentMingo's reporter writes and removes this file. To stop it: node ~/.agentmingo/reporter.mjs start-from-web off -->";
+
+/** Where the helper's LaunchAgent goes: ~/Library/LaunchAgents (`deps.launchAgents` in tests). */
+function helperPlistFile(deps = {}) {
+  return join(deps.launchAgents || join(homedir(), "Library", "LaunchAgents"), `${START_FROM_WEB_LABEL}.plist`);
+}
+
+/** A path with the home folder shown as ~. */
+function tildePath(file) {
+  const home = homedir();
+  return file === home || String(file).startsWith(`${home}/`) ? `~${String(file).slice(home.length)}` : String(file);
+}
+
+function xmlEscape(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+/**
+ * The helper's LaunchAgent: launchd runs `reporter.sh start-from-web helper` (so an update or a rollback of the reporter
+ * carries over) while its person is logged in (Aqua), from login on; again a minute after it fails, but not after it
+ * stops because starting threads is off (exit 0). Its PATH is the system's only, and it gets no other variable.
+ */
+export function startHelperPlist(home) {
+  const s = (value) => `<string>${xmlEscape(value)}</string>`;
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    START_HELPER_MARKER,
+    '<plist version="1.0">',
+    "<dict>",
+    "  <key>Label</key>",
+    `  ${s(START_FROM_WEB_LABEL)}`,
+    "  <key>ProgramArguments</key>",
+    "  <array>",
+    `    ${s(join(home, "reporter.sh"))}`,
+    `    ${s("start-from-web")}`,
+    `    ${s("helper")}`,
+    `    ${s("--home")}`,
+    `    ${s(home)}`,
+    "  </array>",
+    "  <key>RunAtLoad</key>",
+    "  <true/>",
+    "  <key>KeepAlive</key>",
+    "  <dict>",
+    "    <key>SuccessfulExit</key>",
+    "    <false/>",
+    "  </dict>",
+    "  <key>ThrottleInterval</key>",
+    "  <integer>60</integer>",
+    "  <key>ProcessType</key>",
+    `  ${s("Standard")}`,
+    "  <key>LimitLoadToSessionType</key>",
+    `  ${s("Aqua")}`,
+    "  <key>EnvironmentVariables</key>",
+    "  <dict>",
+    "    <key>PATH</key>",
+    `    ${s("/usr/bin:/bin:/usr/sbin:/sbin")}`,
+    "  </dict>",
+    "  <key>StandardErrorPath</key>",
+    `  ${s(join(home, "helper.log"))}`,
+    "  <key>StandardOutPath</key>",
+    `  ${s("/dev/null")}`,
+    "</dict>",
+    "</plist>",
+    "",
+  ].join("\n");
+}
+
+/** Runs launchctl (by name: /bin/launchctl, on launchd's PATH), or `deps.launchctl` in tests: { status, out }. */
+function launchctl(deps, args) {
+  if (deps.launchctl) return deps.launchctl(args);
+  const ran = spawnSync("launchctl", args, { encoding: "utf8", timeout: 15_000 });
+  return { status: ran.status, out: `${ran.stdout || ""}${ran.stderr || ""}`.trim() || (ran.error ? ran.error.message : "") };
+}
+
+/** The person's login session, where their LaunchAgents run. */
+function guiDomain(deps) {
+  return `gui/${deps.uid ?? process.getuid()}`;
+}
+
+/**
+ * Writes the helper's LaunchAgent and starts it (launchctl bootstrap, after booting out one running from before). A
+ * file at its path that this reporter didn't write is left alone, and so is starting it. Throws when launchctl doesn't
+ * start it (inside a sandbox, say), and then takes its file away again.
+ */
+async function loadStartHelper(p, deps = {}) {
+  const file = helperPlistFile(deps);
+  const before = readText(file);
+  if (before !== null && !before.includes(START_HELPER_MARKER)) throw new Error(`${tildePath(file)} is there already and isn't one AgentMingo's reporter wrote, so it was left alone`);
+  currentShim(p, readJson(p.config));
+  mkdirSync(dirname(file), { recursive: true });
+  replaceFile(file, startHelperPlist(p.home), 0o644);
+  const domain = guiDomain(deps);
+  launchctl(deps, ["bootout", `${domain}/${START_FROM_WEB_LABEL}`]);
+  let ran = launchctl(deps, ["bootstrap", domain, file]);
+  if (ran.status !== 0) {
+    // launchd may still be stopping the one booted out a moment ago.
+    await (deps.wait || sleep)(1_000);
+    ran = launchctl(deps, ["bootstrap", domain, file]);
+  }
+  if (ran.status !== 0) {
+    rmSync(file, { force: true });
+    throw new Error(`launchctl didn't start it (${ran.out || `exit code ${ran.status}`})`);
+  }
+  log(p, `start-from-web: wrote ${tildePath(file)} and started the helper`);
+}
+
+/**
+ * Stops the helper (launchctl bootout) and takes its LaunchAgent and the starts' files away. A file at its path this
+ * reporter didn't write is left alone, and so is the service of that name. Says what it did: { removed, file, foreign }.
+ */
+function unloadStartHelper(p, deps = {}) {
+  const file = helperPlistFile(deps);
+  const text = readText(file);
+  const ours = text !== null && text.includes(START_HELPER_MARKER);
+  const foreign = text !== null && !ours;
+  if (!foreign && (deps.platform || process.platform) === "darwin") launchctl(deps, ["bootout", `${guiDomain(deps)}/${START_FROM_WEB_LABEL}`]);
+  if (ours) rmSync(file, { force: true });
+  rmSync(p.starts, { recursive: true, force: true });
+  if (ours) log(p, `start-from-web: stopped the helper and removed ${tildePath(file)}`);
+  return { removed: ours, file, foreign };
+}
+
+/**
+ * After an update, for the copy install put in this folder with starting threads from AgentMingo on: the helper's
+ * LaunchAgent as this version writes it, restarted when its text changed. A LaunchAgent that was taken away isn't made
+ * again (`start-from-web on` does that). Never throws.
+ */
+function refreshStartHelper(p, config, platform, deps = {}) {
+  try {
+    if (!config || config.startFromWeb !== true || platform !== "darwin") return "off";
+    const file = helperPlistFile(deps);
+    const text = readText(file);
+    if (text === null || !text.includes(START_HELPER_MARKER)) return "not there";
+    currentShim(p, config);
+    const want = startHelperPlist(p.home);
+    if (text === want) return "current";
+    replaceFile(file, want, 0o644);
+    const domain = guiDomain(deps);
+    launchctl(deps, ["bootout", `${domain}/${START_FROM_WEB_LABEL}`]);
+    const ran = launchctl(deps, ["bootstrap", domain, file]);
+    log(p, `start-from-web: rewrote ${tildePath(file)} for this version${ran.status === 0 ? " and restarted the helper" : `; launchctl didn't restart it (${ran.out || `exit code ${ran.status}`}): run start-from-web on`}`);
+    return "rewritten";
+  } catch (e) {
+    log(p, `start-from-web: couldn't rewrite the helper's LaunchAgent: ${e && e.message ? e.message : e}`);
+    return "failed";
+  }
+}
+
+/**
+ * reporter.sh as this version writes it, for the helper's LaunchAgent, which runs it: one written before (an older
+ * version's) exits 0 when its Node.js is gone, which leaves the helper stopped. Only for the layout install sets up.
+ */
+function currentShim(p, config) {
+  if (!config || config.layout !== LAYOUT || !config.node || !existsSync(p.shim)) return;
+  const want = shimText(config.node, p.launcher);
+  if (readText(p.shim) !== want) replaceFile(p.shim, want, 0o755);
+}
+
+/**
+ * Starts the helper now if it isn't running (launchctl kickstart): after reporter.sh was pointed at a Node.js that's
+ * there, the helper may have stopped for good when the one before was gone. Only when its LaunchAgent is this
+ * reporter's. Never throws.
+ */
+function kickStartHelper(p, deps = {}) {
+  const text = readText(helperPlistFile(deps));
+  if (text === null || !text.includes(START_HELPER_MARKER)) return;
+  const ran = launchctl(deps, ["kickstart", `${guiDomain(deps)}/${START_FROM_WEB_LABEL}`]);
+  log(p, `start-from-web: ${ran.status === 0 ? "started the helper again with that Node.js" : `launchctl didn't start the helper (${ran.out || `exit code ${ran.status}`}); it starts at the next login`}`);
+}
+
+/** Whether the helper can run here: the copy the setup command installed, run through reporter.sh (its LaunchAgent runs that). */
+function helperCanRun(p, config, deps = {}) {
+  return resolve(deps.script || SCRIPT) === resolve(join(p.home, "reporter.mjs")) && Boolean(config) && config.layout === LAYOUT && existsSync(p.shim);
+}
+
+/** What the helper keeps in state/starts.json: when it last heard each organization, the starts it opened lately, the last result. */
+function startsState(p) {
+  const s = readJson(p.startsState);
+  return s && typeof s === "object" && !Array.isArray(s) ? s : {};
+}
+
+function noteStartsState(p, patch) {
+  mkdirSync(p.state, { recursive: true });
+  writeJson(p.startsState, { ...startsState(p), ...patch }, 0o600);
+}
+
+/** A start's `.command` file: Terminal runs it, and it runs run-start for that start, once. Only the id and this folder are in it. */
+export function startCommandText(home, id) {
+  return [
+    "#!/bin/sh",
+    "# AgentMingo's reporter wrote this for a start you asked for on AgentMingo. It runs once; close the window to stop the thread.",
+    `exec ${shQuote(join(home, "reporter.sh"))} run-start ${shQuote(id)} --home ${shQuote(home)}`,
+    "",
+  ].join("\n");
+}
+
+/** Opens a file in Terminal without taking the focus (`open -g -a Terminal <file>`; no shell, no AppleScript). */
+function openTerminal(args) {
+  const ran = spawnSync("open", args, { stdio: "ignore", timeout: 10_000 });
+  return { status: ran.status, out: ran.error ? ran.error.message : "" };
+}
+
+/**
+ * Tells AgentMingo how a start went (`result`: opened, started, or failed with its reason), with a one-line detail
+ * (the home folder shown as ~) and the repository's name. A failure to tell it is logged; the start goes on. With
+ * `again`, a request that got no answer is sent once more (the same result twice changes nothing there).
+ */
+async function sendStartResult(p, conn, id, result, post = postJson, timeoutMs = 15_000, again = true) {
+  const body = {
+    id,
+    outcome: result.outcome,
+    ...(result.reason ? { reason: result.reason } : {}),
+    ...(result.detail ? { detail: label(terminalSafe(String(result.detail).split(homedir()).join("~")), 300) } : {}),
+    ...(repositoryNameOk(result.repo) ? { repo: result.repo } : {}),
+  };
+  let res = await post(conn, START_FROM_WEB_PATHS.result, body, timeoutMs);
+  if (again && res.status === 0) res = await post(conn, START_FROM_WEB_PATHS.result, body, timeoutMs);
+  try {
+    noteStartsState(p, { last: { id, outcome: result.outcome, reason: result.reason || null, at: Date.now() } });
+  } catch {
+    // Only for `start-from-web status`.
+  }
+  if (!res.ok) log(p, `start-from-web: couldn't tell ${connectionKey(conn)} that start ${id} ${result.outcome}${result.reason ? ` (${result.reason})` : ""}: ${(res.error && res.error.message) || `HTTP ${res.status}`}`);
+  return res;
+}
+
+/** "38 minutes", "1 minute": a wait in whole minutes, rounded up. */
+function minutesWords(ms) {
+  const n = Math.max(1, Math.ceil(ms / 60_000));
+  return `${n} minute${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * One start AgentMingo sent the helper ({ id, task }), from `conn`: checks its id and key, takes it (claim, so it runs
+ * once), and opens Terminal on a `.command` file that runs run-start for it, never twice (a marker file made once).
+ * Within START_OPENS_APART_MS of the last open it leaves the start untaken ("later"): it keeps waiting on AgentMingo,
+ * and a check a few seconds on opens it. Past START_OPENS_PER_HOUR in the last hour it takes it and says it's busy,
+ * with when the next can open. Says what it did.
+ */
+export async function handleStart(p, conn, start, deps = {}) {
+  const post = deps.post || postJson;
+  const now = deps.now || Date.now;
+  const id = start && typeof start.id === "string" ? start.id : "";
+  if (!START_ID.test(id)) {
+    helperNote(p, deps, `start-from-web: ${connectionKey(conn)} sent a start whose id isn't one; nothing opened`);
+    return "bad_id";
+  }
+  // The local limits, whatever AgentMingo sends. Read before taking it, so one that only has to wait a few seconds isn't taken.
+  const at = now();
+  const opens = (Array.isArray(startsState(p).opens) ? startsState(p).opens : []).filter((t) => typeof t === "number" && at - t < 3_600_000 && t <= at);
+  const hourFull = opens.length >= START_OPENS_PER_HOUR;
+  if (!hourFull && opens.length && at - Math.max(...opens) < START_OPENS_APART_MS) {
+    helperNote(p, deps, `start-from-web: start ${id} waits a few seconds: the last one opened ${Math.round((at - Math.max(...opens)) / 1000)} s ago`);
+    return "later";
+  }
+  let claim = await post(conn, START_FROM_WEB_PATHS.claim, { id }, 15_000);
+  // No answer: once more (taking it again is the same for this computer).
+  if (claim.status === 0) claim = await post(conn, START_FROM_WEB_PATHS.claim, { id }, 15_000);
+  if (!claim.ok || !claim.data || claim.data.claimed !== true) {
+    helperNote(p, deps, `start-from-web: start ${id} wasn't this computer's to take (${claim.data && claim.data.status ? claim.data.status : (claim.error && claim.error.message) || `HTTP ${claim.status}`}); nothing opened`);
+    return "not_claimed";
+  }
+  const task = typeof start.task === "string" ? start.task : "";
+  if (!TASK_KEY.test(task)) {
+    helperNote(p, deps, `start-from-web: start ${id} named no task key; nothing opened`);
+    await sendStartResult(p, conn, id, { outcome: "failed", reason: "refused" }, post);
+    return "refused";
+  }
+  mkdirSync(p.starts, { recursive: true, mode: 0o700 });
+  chmodSync(p.starts, 0o700);
+  try {
+    closeSync(openSync(join(p.starts, `${id}.claimed`), "wx", 0o600));
+  } catch (e) {
+    if (e && e.code === "EEXIST") {
+      helperNote(p, deps, `start-from-web: start ${id} came again; it was opened once already`);
+      return "seen";
+    }
+    throw e;
+  }
+  if (hourFull) {
+    const next = `The next one can open in ${minutesWords(Math.min(...opens) + 3_600_000 - at)}.`;
+    helperNote(p, deps, `start-from-web: start ${id} (${task}) not opened: ${opens.length} opened in the last hour, the most it opens. ${next}`);
+    await sendStartResult(p, conn, id, { outcome: "failed", reason: "busy", detail: next }, post);
+    return "busy";
+  }
+  const info = join(p.starts, `${id}.json`);
+  const command = join(p.starts, `${id}.command`);
+  // What run-start needs: the start, its task, and which connection it came from (never the token).
+  writeFileSync(info, JSON.stringify({ id, task, url: conn.url, org: conn.org }), { mode: 0o600, flag: "wx" });
+  chmodSync(info, 0o600);
+  writeFileSync(command, startCommandText(p.home, id), { mode: 0o700, flag: "wx" });
+  chmodSync(command, 0o700);
+  const opened = (deps.open || openTerminal)(["-g", "-a", "Terminal", command]);
+  if (opened.status === 0) {
+    noteStartsState(p, { opens: [...opens, at] });
+    helperNote(p, deps, `start-from-web: opened Terminal for start ${id} (${task}) from ${connectionKey(conn)}`);
+    await sendStartResult(p, conn, id, { outcome: "opened" }, post);
+    return "opened";
+  }
+  rmSync(info, { force: true });
+  rmSync(command, { force: true });
+  helperNote(p, deps, `start-from-web: couldn't open Terminal for start ${id} (${opened.out || `exit code ${opened.status}`})`);
+  await sendStartResult(p, conn, id, { outcome: "failed", reason: "terminal_failed", detail: opened.out || `open exited with ${opened.status}` }, post);
+  return "terminal_failed";
+}
+
+/** A process's command line (ps), or "" when there's none. */
+function commandOf(pid) {
+  const ran = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8", timeout: 5_000 });
+  return ran.status === 0 ? String(ran.stdout || "").trim() : "";
+}
+
+/**
+ * Takes the helper's lock (its pid in state/start-helper.pid). Returns the pid of another helper that holds it, or null
+ * once it's this one's. A pid file counts only when it was written since this Mac last started up (`deps.bootedAt`) and
+ * lately, and its pid is a live `start-from-web helper` (`deps.commandOf`): after a restart, that pid may be another
+ * program of the person's.
+ */
+function takeHelperLock(p, deps = {}) {
+  mkdirSync(p.state, { recursive: true });
+  const pid = Number(readText(p.helperPid));
+  let writtenAt = 0;
+  try {
+    writtenAt = statSync(p.helperPid).mtimeMs;
+  } catch {
+    // None yet.
+  }
+  const bootedAt = deps.bootedAt ?? Date.now() - uptime() * 1000;
+  const fresh = writtenAt > bootedAt && Date.now() - writtenAt < HELPER_PID_STALE_MS;
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && fresh && alive(pid) && /\bstart-from-web helper\b/.test((deps.commandOf || commandOf)(pid))) return pid;
+  writeFileSync(p.helperPid, String(process.pid), { mode: 0o600 });
+  return null;
+}
+
+/** A line in reporter.log, and on screen too for `start-from-web helper --once` run by hand (`deps.say`). */
+function helperNote(p, deps, message) {
+  log(p, message);
+  if (deps.say) deps.say(message);
+}
+
+function releaseHelperLock(p) {
+  try {
+    if (Number(readText(p.helperPid)) === process.pid) unlinkSync(p.helperPid);
+  } catch {
+    // Already gone.
+  }
+}
+
+/** Empties helper.log when it grew past HELPER_LOG_MAX_BYTES, and takes away starts' files a day old. */
+function tidyStartFiles(p) {
+  try {
+    if (existsSync(p.helperLog) && statSync(p.helperLog).size > HELPER_LOG_MAX_BYTES) truncateSync(p.helperLog, 0);
+  } catch {
+    // Only tidying.
+  }
+  let names = [];
+  try {
+    names = readdirSync(p.starts);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const file = join(p.starts, name);
+    try {
+      if (Date.now() - statSync(file).mtimeMs > START_FILES_KEEP_MS) rmSync(file, { force: true });
+    } catch {
+      // Gone meanwhile.
+    }
+  }
+}
+
+/**
+ * Waits `ms` in steps of WATCH_CHECK_MS. Returns "woke" as soon as the clock jumped past a step by more than half a
+ * minute (the Mac slept and woke: a start may be waiting), else "waited".
+ */
+async function pauseHelper(ms, wait, now) {
+  let left = ms;
+  while (left > 0) {
+    const step = Math.min(left, WATCH_CHECK_MS);
+    const before = now();
+    await wait(step);
+    if (now() - before > step + 30_000) return "woke";
+    left -= step;
+  }
+  return "waited";
+}
+
+/**
+ * `start-from-web helper` (launchd runs it, from the LaunchAgent): while starting threads from AgentMingo is on here,
+ * asks each organization about every 10 seconds (`check`: whether it's on, whether answering prompts from AgentMingo is
+ * on here) for starts its person pressed, and opens each (handleStart). Returns its exit code: 0 when it's off (and
+ * launchd leaves it stopped), HELPER_NEW_VERSION when this computer's reporter.mjs is a newer one (launchd starts that).
+ * A connection AgentMingo turned off (its answer says `off`) gets `starts: false`; one it refuses (401) is skipped until
+ * the helper starts again; a 403, a 429 or no answer waits, as sending does. `deps.once`: one round. When another
+ * helper runs, it does nothing and returns 1, so launchd tries again a minute later rather than leaving it stopped.
+ * `deps.say`: each step on screen too (--once, run by hand). Its lock is let go however it ends, a stop from launchd
+ * (SIGTERM, at logout or shutdown) included.
+ */
+export async function runStartHelper(home, deps = {}) {
+  if ((deps.platform || process.platform) !== "darwin") return 0;
+  const p = paths(home);
+  const now = deps.now || Date.now;
+  const wait = deps.wait || sleep;
+  const post = deps.post || postJson;
+  const running = Number(deps.version || VERSION);
+  const holder = takeHelperLock(p, deps);
+  if (holder !== null) {
+    helperNote(p, deps, `start-from-web: another helper runs on this computer (pid ${holder}), so this one did nothing. What it does goes to ${tildePath(p.log)}.`);
+    return 1;
+  }
+  // launchd stops it with SIGTERM: its lock goes with it, so the next one (after a restart, say) doesn't wait on it.
+  const stopped = () => {
+    releaseHelperLock(p);
+    process.exit(143);
+  };
+  process.once("SIGTERM", stopped);
+  try {
+    tidyStartFiles(p);
+    const refused = new Set();
+    const waits = {};
+    for (;;) {
+      const config = readJson(p.config);
+      if (!config || config.startFromWeb !== true) {
+        helperNote(p, deps, "start-from-web: off on this computer; the helper stopped");
+        return 0;
+      }
+      const onDisk = versionIn(readText(join(home, "reporter.mjs")));
+      if (onDisk !== null && onDisk !== running) {
+        helperNote(p, deps, `start-from-web: reporter ${onDisk} is here now; the helper restarts as it`);
+        return HELPER_NEW_VERSION;
+      }
+      const on = connectionsOf(config).filter((c) => c.starts !== false);
+      if (!on.length) {
+        patchConfig(p, { startFromWeb: false });
+        helperNote(p, deps, "start-from-web: AgentMingo turned it off for every organization here, so it's off on this computer now; the helper stopped");
+        return 0;
+      }
+      const conns = on.filter((c) => !refused.has(connectionKey(c)));
+      if (!conns.length) {
+        helperNote(p, deps, "start-from-web: AgentMingo refused this computer's connections (401); the helper stopped until it starts again");
+        return 0;
+      }
+      writeFileSync(p.helperPid, String(process.pid), { mode: 0o600 });
+      const answers = repliesOn(config);
+      let pace = Infinity;
+      for (const conn of conns) {
+        const key = connectionKey(conn);
+        const waiting = waits[key];
+        if (waiting && waiting.until > now()) {
+          pace = Math.min(pace, waiting.until - now());
+          continue;
+        }
+        const res = await post(conn, START_FROM_WEB_PATHS.check, { helper: "running", answers }, 15_000);
+        if (res.status === 401) {
+          refused.add(key);
+          helperNote(p, deps, `start-from-web: ${key} refused this computer's connection (401); not asking it again until the helper starts again`);
+          continue;
+        }
+        if (res.status === 403 || res.status === 429 || res.status === 0 || res.status === 404 || res.status >= 500) {
+          const failures = ((waiting && waiting.failures) || 0) + 1;
+          const ms =
+            res.status === 403
+              ? forbiddenMs(failures)
+              : res.status === 429
+                ? Math.max(START_POLL_MIN_MS, Math.min(res.retryAfterMs || START_RETRY_FIRST_MS, RETRY_AFTER_MAX_MS))
+                : Math.min(START_POLL_MAX_MS, START_RETRY_FIRST_MS * 2 ** Math.min(failures - 1, 10));
+          waits[key] = { failures, until: now() + ms, network: res.status === 0 || res.status >= 500 || res.status === 404 };
+          pace = Math.min(pace, ms);
+          if (failures === 1) helperNote(p, deps, `start-from-web: ${key} didn't take the check (${res.status ? `HTTP ${res.status}` : (res.error && res.error.message) || "no answer"}); asking again in ${Math.round(ms / 1000)} s`);
+          continue;
+        }
+        delete waits[key];
+        if (!res.ok || !res.data) {
+          helperNote(p, deps, `start-from-web: ${key} answered the check with HTTP ${res.status}: ${(res.error && res.error.message) || "no data"}`);
+          pace = Math.min(pace, START_POLL_DEFAULT_MS);
+          continue;
+        }
+        noteStartsState(p, { checks: { ...(startsState(p).checks || {}), [key]: now() } });
+        if (res.data.off === true) {
+          const fresh = readJson(p.config);
+          saveConnections(
+            p,
+            fresh,
+            connectionsOf(fresh).map((c) => (connectionKey(c) === key ? { ...c, starts: false } : c)),
+          );
+          helperNote(p, deps, `start-from-web: ${key} turned starting threads off for this computer (its Account page); start-from-web on turns it on again`);
+          continue;
+        }
+        const starts = Array.isArray(res.data.starts) ? res.data.starts.slice(0, 3) : [];
+        // Every check would fill the log; by hand, each one is worth seeing.
+        if (deps.say) deps.say(`start-from-web: checked ${key}: ${starts.length ? `${starts.length} start${starts.length === 1 ? "" : "s"} waiting` : "nothing waiting"}`);
+        for (const start of starts) {
+          try {
+            // One held back by the local gap stays waiting on AgentMingo, and opens at a check soon after (they come every
+            // few seconds while starts wait: nextPollMs).
+            await handleStart(p, conn, start, { post, now, open: deps.open, say: deps.say });
+          } catch (e) {
+            helperNote(p, deps, `start-from-web: a start from ${key} failed: ${e && e.message ? e.message : e}`);
+          }
+        }
+        const next = Number(res.data.nextPollMs);
+        pace = Math.min(pace, Number.isFinite(next) && next > 0 ? next : START_POLL_DEFAULT_MS);
+      }
+      if (deps.once) return 0;
+      const pause = Math.min(START_POLL_MAX_MS, Math.max(START_POLL_MIN_MS, Number.isFinite(pace) ? pace : START_POLL_DEFAULT_MS));
+      if ((await pauseHelper(pause, wait, now)) === "woke") {
+        // Awake again: the network is likely back, so a wait for it is over.
+        for (const [key, w] of Object.entries(waits)) if (w.network) delete waits[key];
+      }
+    }
+  } finally {
+    process.off("SIGTERM", stopped);
+    releaseHelperLock(p);
+  }
+}
+
+/** Runs git with its output on screen and never asking anything (run-start's window), for at most two minutes. */
+function gitShownQuiet(cwd, args) {
+  return spawnSync("git", ["-C", cwd, ...args], { stdio: "inherit", timeout: 120_000, env: quietGitEnv() }).status === 0;
+}
+
+/** Claude Code's command line: on the PATH, else where its installers put it. Null when there's none that runs. */
+function findClaude() {
+  const found = claudeCli();
+  if (found) return found;
+  for (const candidate of [join(homedir(), ".local", "bin", "claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]) {
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Not there.
+    }
+  }
+  return null;
+}
+
+/**
+ * `run-start <id> [--no-launch]`, which the Terminal window the helper opened runs: once per start (its file is taken
+ * as it begins), it makes the task's folder as `start` does (taskFolder, from that start's organization only, with the
+ * safe .env files) and runs Claude Code there, working on the task: `claude "Work on WEB-12"`, as you'd start it
+ * yourself, so Claude Code's own permission settings apply (no permission flag, no settings or MCP config of
+ * AgentMingo's). AGENTMINGO_START tells the thread's first report which start it was. AgentMingo hears how it went.
+ * Returns Claude Code's exit code. Never inside Claude Code's Bash tool, and only in a terminal (but with --no-launch).
+ */
+export async function runStart(home, id, flags = {}, deps = {}) {
+  const say = deps.say || console.log;
+  const env = deps.env || process.env;
+  const terminal = deps.terminal ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  if (insideClaudeBash(env, terminal)) throw new Error("run-start runs in the Terminal window AgentMingo's helper opens for a start, not inside Claude Code's Bash tool.");
+  if (!terminal && !flags.noLaunch) throw new Error("run-start runs in the Terminal window AgentMingo's helper opens for a start: it starts Claude Code there.");
+  if (!START_ID.test(id || "")) throw new Error("That isn't a start's id.");
+  const p = paths(home);
+  const running = join(p.starts, `${id}.running`);
+  try {
+    renameSync(join(p.starts, `${id}.json`), running);
+  } catch {
+    say("This start already ran, or isn't one of this computer's.");
+    return 0;
+  }
+  rmSync(join(p.starts, `${id}.command`), { force: true });
+  try {
+    return await runTakenStart(p, id, readJson(running), flags, { ...deps, env }, say);
+  } finally {
+    rmSync(running, { force: true });
+  }
+}
+
+/** run-start's work, once its start's file is taken (`info`: { task, url, org }). */
+async function runTakenStart(p, id, info, flags, deps, say) {
+  const post = deps.post || postJson;
+  const config = readJson(p.config);
+  const conn = info && config ? connectionsOf(config).find((c) => c.url === info.url && (c.org || null) === (info.org || null)) : null;
+  if (!conn) {
+    say("AgentMingo: the organization this start came from isn't connected on this computer any more, so it didn't run.");
+    return 1;
+  }
+  // Ten seconds at most, and once more when it got no answer (the same result twice changes nothing there): the person
+  // is watching this window, and the thread starts either way, but a failure lost here would leave the page waiting.
+  const tell = (result) => sendStartResult(p, conn, id, result, post, 10_000, true);
+  if (config.startFromWeb !== true || conn.starts === false) {
+    await tell({ outcome: "failed", reason: "turned_off" });
+    say("AgentMingo: starting threads from AgentMingo is off on this computer, so this start didn't run.");
+    return 1;
+  }
+  const task = typeof info.task === "string" && TASK_KEY.test(info.task) ? info.task : null;
+  if (!task) {
+    await tell({ outcome: "failed", reason: "refused" });
+    say("AgentMingo: this start names no task, so it didn't run.");
+    return 1;
+  }
+  say(`AgentMingo: starting a thread on ${task}, as you asked from AgentMingo. Close this window to stop it.`);
+  const run = deps.git || git;
+  let t;
+  try {
+    t = await taskFolder(p.home, task, { connection: conn }, { gitVisible: deps.gitVisible || gitShownQuiet, cwd: deps.cwd || homedir(), post, git: run });
+  } catch (e) {
+    const message = e && e.message ? e.message : String(e);
+    const reason = e && REPORTER_START_FAILURES.includes(e.reason) ? e.reason : e && (e.code === "EPERM" || e.code === "EACCES") ? "folder_blocked" : "error";
+    await tell({ outcome: "failed", reason, detail: message, repo: e && e.repo });
+    say(`AgentMingo: couldn't start ${task}: ${terminalSafe(message)}`);
+    return 1;
+  }
+  for (const line of t.lines) say(terminalSafe(line));
+  const prompt = `Work on ${t.taskKey}`;
+  const cli = (deps.claude || findClaude)();
+  if (!cli) {
+    await tell({ outcome: "failed", reason: "claude_missing", repo: t.repository.fullName });
+    say(`AgentMingo: couldn't find Claude Code on this Mac. Check that claude runs in a new Terminal window, then start it yourself: cd ${shellQuote(t.folder)} && claude ${shellQuote(prompt)}`);
+    return 1;
+  }
+  const dirs = extraDirs(p, t, run);
+  await tell({ outcome: "started", repo: t.repository.fullName });
+  if (flags.noLaunch) {
+    say(`Folder: ${t.folder}`);
+    return 0;
+  }
+  if (dirs.length) say(`Claude can also work in ${dirs.join(", ")}, for the other repositories the plan may name.`);
+  // As you'd start it yourself: the prompt first (--add-dir takes every argument after it), and nothing else.
+  return (deps.launch || launch)(cli, [prompt, ...(dirs.length ? ["--add-dir", ...dirs] : [])], t.folder, { ...deps.env, AGENTMINGO_START: id });
+}
+
+/** What turning starting threads from AgentMingo on does, in words (`start-from-web on` asks after these; install says them). */
+function startFromWebSaid() {
+  return [
+    `- A helper on this Mac (a LaunchAgent: ~/Library/LaunchAgents/${START_FROM_WEB_LABEL}.plist) asks AgentMingo about every ${START_POLL_DEFAULT_MS / 1000} seconds, while you're logged in and the Mac is awake, whether you pressed Start on my computer on a task.`,
+    `- When you did, it opens Terminal with one fixed command built on this Mac: Claude Code in the task's folder (made as start makes it, with the same .env files), working on “Work on <task key>”. AgentMingo sends only the task's key, never a command or a path. Claude Code's own permission settings apply, as when you start it yourself. At most ${START_OPENS_PER_HOUR} starts an hour.`,
+    "- Only you can start threads here, signed in as yourself (not teammates or admins). Someone who gets into your AgentMingo account could start a thread on a task here, and answer its prompts if answering them from AgentMingo is on.",
+    "- Sent: that it's on, whether answering prompts from AgentMingo is on here, and how each start went (opened, started, or why not, in one line with your home folder shown as ~, and the repository's name). Never this Mac's name.",
+    `- To turn it off: node ${SCRIPT} start-from-web off, or on your Account page in AgentMingo.`,
+  ];
+}
+
+/** Said after turning it on when answering prompts from AgentMingo is off here. */
+const STARTS_ANSWERS_OFF_SAID = "Prompts in threads started this way wait for you at this Mac: answering them from AgentMingo is off here (approvals on turns it on).";
+
+/**
+ * Turns starting threads from AgentMingo on (`start-from-web on` once its person typed yes, and install's
+ * --start-from-web with a code made with the box ticked): on in config.json (and on again for an organization AgentMingo
+ * turned it off for), each organization told (`check` turned_on, before the helper's first ask), then the helper's
+ * LaunchAgent written and started. When launchctl doesn't start it, it's off again (and AgentMingo told so): { error }.
+ */
+async function turnOnStartHelper(p, deps = {}) {
+  const post = deps.post || postJson;
+  const fresh = readJson(p.config);
+  if (!fresh) return { error: "Not connected yet" };
+  saveConnections(
+    p,
+    { ...fresh, startFromWeb: true },
+    connectionsOf(fresh).map(({ starts: _off, ...c }) => c),
+  );
+  const config = readJson(p.config);
+  const conns = connectionsOf(config);
+  const told = await Promise.all(conns.map((c) => post(c, START_FROM_WEB_PATHS.check, { helper: "turned_on", answers: repliesOn(config) }, 10_000)));
+  try {
+    await loadStartHelper(p, deps);
+  } catch (e) {
+    patchConfig(p, { startFromWeb: false });
+    await tellStartsOff(config, post);
+    return { error: e && e.message ? e.message : String(e) };
+  }
+  return { unreached: conns.filter((_, i) => !told[i].ok).map(connectionKey), answers: repliesOn(config) };
+}
+
+/**
+ * Tells each organization starting threads is off here (`check` turned_off; best effort). Only once the helper is
+ * stopped and config.json says off: a check the helper sent before then could otherwise reach AgentMingo after this,
+ * and turn it on there again.
+ */
+async function tellStartsOff(config, post = postJson) {
+  await Promise.all(connectionsOf(config).map((c) => post(c, START_FROM_WEB_PATHS.check, { helper: "turned_off", answers: repliesOn(config) }, 10_000)));
+}
+
+/** Turns it off: the helper stopped and its LaunchAgent and files taken away, off in config.json, then each organization told. */
+async function turnOffStartHelper(p, deps = {}) {
+  const config = readJson(p.config);
+  const done = unloadStartHelper(p, deps);
+  if (config) patchConfig(p, { startFromWeb: false });
+  await tellStartsOff(config, deps.post || postJson);
+  return done;
+}
+
+/** "8 seconds ago", "3 minutes ago". */
+function agoWords(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const [n, unit] = s < 60 ? [s, "second"] : s < 3600 ? [Math.round(s / 60), "minute"] : s < 172_800 ? [Math.round(s / 3600), "hour"] : [Math.round(s / 86_400), "day"];
+  return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+}
+
+/** What `status` and `start-from-web status` say about starting threads from AgentMingo. */
+export function startFromWebLine(p, config, deps = {}) {
+  if ((deps.platform || process.platform) !== "darwin") return "Starting threads from AgentMingo: not offered on this computer (it works on macOS for now).";
+  if (!config || config.startFromWeb !== true) return `Starting threads from AgentMingo: off (to turn it on, in a terminal of your own: node ${SCRIPT} start-from-web on).`;
+  const loaded = launchctl(deps, ["print", `${guiDomain(deps)}/${START_FROM_WEB_LABEL}`]).status === 0;
+  const checks = Object.values(startsState(p).checks || {}).filter((at) => typeof at === "number");
+  const all = connectionsOf(config);
+  const on = all.filter((c) => c.starts !== false).map(connectionKey);
+  const off = all.filter((c) => c.starts === false).map(connectionKey);
+  const parts = [
+    loaded ? "helper loaded" : `helper not loaded: run node ${SCRIPT} start-from-web on again`,
+    checks.length ? `last checked ${agoWords((deps.now || Date.now)() - Math.max(...checks))}` : "hasn't checked in yet",
+    on.length ? on.join(", ") : "no organization",
+  ];
+  const offSaid = off.length ? ` Off for ${off.join(", ")}: turned off on your Account page in AgentMingo (start-from-web on turns it on again).` : "";
+  return `Starting threads from AgentMingo: on (${parts.join("; ")}).${offSaid}`;
+}
+
+/**
+ * `start-from-web on | off | status | helper [--once]`. On only on a Mac, for the copy the setup command installed,
+ * from a terminal of the person's own (never inside Claude Code's Bash tool), and only after they type yes to what it
+ * turns on; off and status from anywhere; helper is what launchd runs.
+ */
+export async function startFromWebCommand(home, mode, flags = {}, deps = {}) {
+  const say = deps.say || console.log;
+  const p = paths(home);
+  // launchd runs it without --once (what it prints goes nowhere); --once is run by hand, and prints each step.
+  if (mode === "helper") return runStartHelper(home, { ...deps, once: Boolean(flags.once), say: flags.once ? say : undefined });
+  if (mode === "status") {
+    say(startFromWebLine(p, readJson(p.config), deps));
+    return 0;
+  }
+  if (mode === "off") {
+    const done = await turnOffStartHelper(p, deps);
+    say(
+      done.foreign
+        ? `Starting threads from AgentMingo is off here. ${tildePath(done.file)} isn't one AgentMingo's reporter wrote, so it was left alone.`
+        : `Starting threads from AgentMingo is off here: the helper stopped${done.removed ? `, and ${tildePath(done.file)} is gone` : ""}. To turn it on again: node ${SCRIPT} start-from-web on`,
+    );
+    return 0;
+  }
+  if ((deps.platform || process.platform) !== "darwin") throw new Error("Starting threads from AgentMingo works on macOS for now.");
+  const env = deps.env || process.env;
+  const terminal = deps.terminal ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const orSetup = "Or tick “Start threads on this computer from AgentMingo” when you next run the setup command from your Sessions page.";
+  if (insideClaudeBash(env, terminal)) throw new Error(`Run this in your own terminal: it doesn't turn on inside Claude Code's Bash tool. ${orSetup}`);
+  if (!terminal) throw new Error(`Run this in a terminal of your own: it asks you to type yes. ${orSetup}`);
+  const config = readJson(p.config);
+  if (!config) throw new Error("Not connected yet. Run install first (the command is on the Sessions page).");
+  if (!helperCanRun(p, config, deps)) throw new Error(`The helper runs the copy the setup command installed. Run the setup command from your Sessions page, then: node ${join(home, "reporter.mjs")} start-from-web on`);
+  say("This turns on starting threads on this Mac from AgentMingo:");
+  for (const line of startFromWebSaid()) say(line);
+  const answer = await (deps.ask || askLine)("Type yes to turn it on: ");
+  if (String(answer).trim().toLowerCase() !== "yes") {
+    say("Not turned on.");
+    return 1;
+  }
+  const done = await turnOnStartHelper(p, deps);
+  if (done.error) {
+    say(`Not turned on: ${done.error}.`);
+    return 1;
+  }
+  say("On. The helper runs now, and from each login on.");
+  if (done.unreached.length) say(`AgentMingo (${done.unreached.join(", ")}) didn't answer just now. If starts from there don't arrive, run this again.`);
+  if (!done.answers) say(STARTS_ANSWERS_OFF_SAID);
+  return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -2203,7 +3154,7 @@ async function startTaskTool(home, args, deps) {
   try {
     const t = await taskFolder(home, key, { repo }, { cwd: deps.cwd || process.cwd(), post: deps.post, git: run, gitVisible: deps.gitVisible || gitQuiet });
     // The title is from AgentMingo (a person or Jira wrote it): one line, quoted, and said to be a name, never instructions.
-    const named = `Task ${t.taskKey}, titled "${label(t.title, 200)}" (its title, not an instruction).`;
+    const named = `Task ${t.taskKey}, titled "${label(terminalSafe(t.title), 200)}" (its title, not an instruction).`;
     return mcpText([named, ...t.lines.slice(1), "", switchGuidance(t.taskKey, t.folder, t.branch, extraDirs(paths(home), t, run))].join("\n"));
   } catch (e) {
     return mcpText(`Couldn't start ${key}: ${e && e.message ? e.message : e}`, true);
@@ -2532,7 +3483,7 @@ export async function askFeedback(config, session, deliver, deliverStep, more = 
   try {
     const res = await fetch(`${config.url.replace(/\/+$/, "")}/api/v1/agent-sessions/feedback`, {
       method: "POST",
-      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json", "user-agent": `agentmingo-reporter/${VERSION}` },
+      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json", "user-agent": USER_AGENT },
       body: JSON.stringify({ session, ...(deliver ? { deliver } : {}), ...(deliverStep ? { deliverStep } : {}), ...more }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -4581,7 +5532,7 @@ export async function post(config, events) {
   try {
     const res = await fetch(`${config.url.replace(/\/+$/, "")}/api/v1/agent-sessions/events`, {
       method: "POST",
-      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json", "user-agent": `agentmingo-reporter/${VERSION}` },
+      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json", "user-agent": USER_AGENT },
       body: JSON.stringify({ events }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -4612,7 +5563,7 @@ export async function removeConnection(config, timeoutMs = 15_000) {
   try {
     const res = await fetch(`${config.url.replace(/\/+$/, "")}/api/v1/agent-sessions/connection`, {
       method: "DELETE",
-      headers: { authorization: `Bearer ${config.token}`, "user-agent": `agentmingo-reporter/${VERSION}` },
+      headers: { authorization: `Bearer ${config.token}`, "user-agent": USER_AGENT },
       signal: AbortSignal.timeout(timeoutMs),
     });
     // 401: it was already disconnected.
@@ -5307,15 +6258,20 @@ function shQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-/** reporter.sh: runs launch.mjs with the Node.js install ran with, or the node on PATH once that one's gone, or nothing. */
+/**
+ * reporter.sh: runs launch.mjs with the Node.js install ran with, or the node on PATH once that one's gone, or nothing.
+ * With no Node.js, a hook exits 0 (Claude Code isn't held up), but the helper launchd runs exits 1, so launchd tries it
+ * again a minute later (once a hook has pointed this at a Node.js that's there) instead of leaving it stopped.
+ */
 export function shimText(node, launcher) {
   return [
     "#!/bin/sh",
     "# AgentMingo's reporter, as Claude Code's hooks and the agentmingo MCP server run it. It uses the Node.js that",
     "# install ran with, or the node on your PATH once that one's gone (an nvm or Homebrew upgrade); with neither,",
-    "# it does nothing, so Claude Code isn't held up. The reporter writes it (install, and after a Node.js upgrade).",
+    "# it does nothing, so Claude Code isn't held up (the start-from-web helper fails, so launchd tries it again).",
+    "# The reporter writes it (install, and after a Node.js upgrade).",
     `node=${shQuote(node)}`,
-    '[ -x "$node" ] || node=$(command -v node) || exit 0',
+    '[ -x "$node" ] || node=$(command -v node) || { [ "$1" = start-from-web ] && exit 1; exit 0; }',
     "# VS Code's Auto Attach debugger leaves Node processes alone with this empty.",
     "VSCODE_INSPECTOR_OPTIONS=",
     "export VSCODE_INSPECTOR_OPTIONS",
@@ -5411,6 +6367,8 @@ export function ensureLayout(p, config, deps = {}) {
     const script = resolve(deps.script || SCRIPT);
     const platform = deps.platform || process.platform;
     if (!config || script !== resolve(join(p.home, "reporter.mjs"))) return "not the installed copy";
+    // The helper that starts threads from AgentMingo, as this version writes its LaunchAgent (when it's on here).
+    refreshStartHelper(p, config, platform, deps);
     if (config.layout === LAYOUT) {
       if (platform === "win32" || !config.node || existsSync(config.node)) return "current";
       const node = deps.node || stableNode();
@@ -5418,6 +6376,8 @@ export function ensureLayout(p, config, deps = {}) {
       replaceFile(p.shim, shimText(node, p.launcher), 0o755);
       patchConfig(p, { node });
       log(p, `the Node.js the hooks were set up with (${config.node}) is gone; they use ${node} now`);
+      // The helper launchd runs through reporter.sh may have found no Node.js and stopped: it runs again now.
+      if (config.startFromWeb === true && platform === "darwin") kickStartHelper(p, deps);
       return "new node";
     }
     const node = deps.node || stableNode();
@@ -5625,7 +6585,7 @@ function patchConfig(p, patch) {
  * anything else in it, stay), with the new address and token, and what this run's flags change. The connections
  * are merged apart (withConnection).
  */
-export function installConfig(previous, args, url, token, approvalsOn = false) {
+export function installConfig(previous, args, url, token, approvalsOn = false, startsOn = false) {
   const before = previous && typeof previous === "object" ? { ...previous } : {};
   delete before.connections;
   // Answering prompts and replies from AgentMingo is kept as it was, unless --no-approvals turns it off, or --approvals
@@ -5633,6 +6593,10 @@ export function installConfig(previous, args, url, token, approvalsOn = false) {
   // never does). Turned on: every prompt, an hour's wait, and a new key for binding answers that never leaves here.
   if (args["no-approvals"]) delete before.approvals;
   else if (approvalsOn && !repliesOn(before)) before.approvals = newApprovals(APPROVAL_WAIT_DEFAULT_S);
+  // Starting threads from AgentMingo, the same way: kept, off with --no-start-from-web, on only as
+  // startFromWebFromSetup decides (`startsOn`).
+  if (args["no-start-from-web"]) before.startFromWeb = false;
+  else if (startsOn) before.startFromWeb = true;
   return {
     ...before,
     url,
@@ -5667,6 +6631,7 @@ function keptChoices(previous, args) {
   if (previous.approvals && typeof previous.approvals === "object" && !args["no-approvals"]) {
     kept.push("answering prompts and replies from AgentMingo on (every prompt; approvals off turns it off)");
   }
+  if (previous.startFromWeb === true && !args["no-start-from-web"]) kept.push("starting threads from AgentMingo on (start-from-web off turns it off)");
   return kept;
 }
 
@@ -5676,13 +6641,14 @@ function keptChoices(previous, args) {
  * also carries an empty report's (`report`: whose connection it is, which repositories report), so install needn't
  * ask again after the code is spent; null when AgentMingo couldn't say. `approvals`: true only when AgentMingo says
  * the code was made with the box "Answer prompts and reply to threads from AgentMingo" ticked (anything else, false).
+ * `startFromWeb`: the same for the box "Start threads on this computer from AgentMingo" (reporter 19).
  */
 export async function tradeSetupCode(url, code, org) {
   let res;
   try {
     res = await fetch(`${url}/api/v1/agent-sessions/connection/exchange`, {
       method: "POST",
-      headers: { "content-type": "application/json", "user-agent": `agentmingo-reporter/${VERSION}` },
+      headers: { "content-type": "application/json", "user-agent": USER_AGENT },
       body: JSON.stringify({ code, ...(org ? { org } : {}) }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -5693,7 +6659,7 @@ export async function tradeSetupCode(url, code, org) {
   const token = body && body.data && typeof body.data.token === "string" ? body.data.token : null;
   if (!res.ok || !token) throw new Error(`AgentMingo didn't take this setup command: ${(body && body.error && body.error.message) || `HTTP ${res.status}`}`);
   const report = body.data.report;
-  return { token, report: report && typeof report === "object" ? report : null, approvals: body.data.approvals === true };
+  return { token, report: report && typeof report === "object" ? report : null, approvals: body.data.approvals === true, startFromWeb: body.data.startFromWeb === true };
 }
 
 /** What install says about which threads report to an organization (its answer's lists). */
@@ -5743,6 +6709,32 @@ export function approvalsStayedOffSaid(why) {
   return `Answering prompts and replies from AgentMingo stayed off: --approvals turns it on only with a setup command's one-time code, and this command has none (it has --token). To turn it on, run a new setup command from your Sessions page with ${box} ticked${or}`;
 }
 
+/**
+ * What install's --start-from-web (the setup command's box "Start threads on this computer from AgentMingo", unticked by
+ * default) does here, decided once the code is traded, as approvalsFromSetup decides for answering prompts: "on" with a
+ * one-time code made with the box ticked, on a Mac, for the copy the setup command installs; otherwise why it stays
+ * off ("no_code", "unticked", "not_mac", "not_installed"); null when there's nothing to do (no --start-from-web, or
+ * --no-start-from-web: the choice from before stays, or goes). Unlike answering prompts, on already isn't "nothing to
+ * do": turning it on again tells AgentMingo, which turns it on again after it was turned off on the Account page.
+ */
+export function startFromWebFromSetup(args, _previous = null, traded = null, platform = process.platform, installedCopy = true) {
+  if (!args["start-from-web"] || args["no-start-from-web"]) return null;
+  if (!args.code) return "no_code";
+  if (!traded || traded.startFromWeb !== true) return "unticked";
+  if (platform !== "darwin") return "not_mac";
+  if (!installedCopy) return "not_installed";
+  return "on";
+}
+
+/** What install says when its --start-from-web left starting threads from AgentMingo off: `why` is startFromWebFromSetup's. */
+export function startsStayedOffSaid(why) {
+  const box = "the box “Start threads on this computer from AgentMingo”";
+  if (why === "not_mac") return "Starting threads on this computer from AgentMingo stayed off: macOS only for now. Start threads here with the command on a task's page.";
+  if (why === "not_installed") return `Starting threads on this computer from AgentMingo stayed off: its helper runs the copy the setup command installs, not ${SCRIPT}. Run the setup command from your Sessions page as it is.`;
+  if (why === "unticked") return `Starting threads on this computer from AgentMingo stayed off: this setup command's one-time code was made with ${box} unticked, and adding --start-from-web to the command doesn't change that. To turn it on, run a new setup command with that box ticked, or in a terminal of your own: node ${SCRIPT} start-from-web on`;
+  return `Starting threads on this computer from AgentMingo stayed off: --start-from-web turns it on only with a setup command's one-time code, and this command has none (it has --token). To turn it on, run a new setup command from your Sessions page with ${box} ticked, or in a terminal of your own: node ${SCRIPT} start-from-web on`;
+}
+
 /** What install says when its --approvals turned answering prompts and replies on. */
 function approvalsTurnedOnSaid() {
   return [
@@ -5774,7 +6766,12 @@ async function install(args) {
   // --approvals turns it on only with a one-time code made with the box ticked (AgentMingo says so in the trade),
   // wherever install runs; otherwise it stays off, and install connects all the same.
   const approvals = approvalsFromSetup(args, previous, traded);
-  const config = installConfig(previous, args, url, token, approvals === "on");
+  // The copy the setup command put in this folder runs through launch.mjs (and reporter.sh), which outlive its
+  // updates and Node.js upgrades. A copy run from elsewhere (a checkout) runs as itself.
+  const installedCopy = resolve(SCRIPT) === resolve(join(home, "reporter.mjs"));
+  // Starting threads from AgentMingo, the same way: only with a one-time code made with its box ticked, on a Mac.
+  const starts = startFromWebFromSetup(args, previous, traded, process.platform, installedCopy);
+  const config = installConfig(previous, args, url, token, approvals === "on", starts === "on");
   const settingsFile = config.settings;
   // A traded code's answer says whose connection it is: asking again could fail after the code was spent.
   const check = traded && traded.report ? { ok: true, body: { data: traded.report } } : await post(config, []);
@@ -5791,9 +6788,6 @@ async function install(args) {
   const { list, replaced, dropped } = await withConnection(connectionsOf(current), mine, post);
 
   mkdirSync(home, { recursive: true });
-  // The copy the setup command put in this folder runs through launch.mjs (and reporter.sh), which outlive its
-  // updates and Node.js upgrades. A copy run from elsewhere (a checkout) runs as itself.
-  const installedCopy = resolve(SCRIPT) === resolve(join(home, "reporter.mjs"));
   if (installedCopy) {
     const node = stableNode();
     writeLayout(p, node);
@@ -5809,6 +6803,25 @@ async function install(args) {
   const [node, run] = runParts(home);
   const backup = writeSettings(settingsFile, before, withReporterHooks(before, hookCommand(node, run, home), hookCommand(node, run, home, "watch"), reporterCommand(node, run, home), permissionWaitOf(config)));
   const mcp = args["no-mcp"] ? "skipped" : registerMcp(home);
+  // The helper that starts threads from AgentMingo: started when the code's box turned it on, started again (as this
+  // version writes it) when it was on before, stopped when --no-start-from-web turned it off. None of it fails install.
+  let helper = null;
+  if (config.startFromWeb === true && process.platform === "darwin" && installedCopy) {
+    if (starts === "on") helper = await turnOnStartHelper(p);
+    else {
+      try {
+        await loadStartHelper(p);
+        helper = { kept: true };
+      } catch (e) {
+        // Off here now (the helper from before was booted out): AgentMingo hears so, or it would keep offering the button.
+        patchConfig(p, { startFromWeb: false });
+        await tellStartsOff(readJson(p.config));
+        helper = { error: e && e.message ? e.message : String(e) };
+      }
+    }
+  } else if (previous && previous.startFromWeb === true && config.startFromWeb !== true) {
+    helper = { off: await turnOffStartHelper(p) };
+  }
 
   console.log(`Connected${connection ? ` to ${connection.organization} as ${connection.person}` : ""}.`);
   console.log(
@@ -5843,6 +6856,17 @@ async function install(args) {
   if (approvals === "on" && repliesOn(config)) for (const line of approvalsTurnedOnSaid()) console.log(line);
   else if (approvals === "no_code" || approvals === "unticked") console.log(approvalsStayedOffSaid(approvals));
   else console.log(approvalsLine(config));
+  if (helper && helper.error) {
+    console.log(`Couldn't start the helper that starts threads on this Mac from AgentMingo: ${helper.error}. Starting threads from AgentMingo is off here; everything else is set up. Run node ${SCRIPT} start-from-web on in a terminal of your own.`);
+  } else if (starts === "on" && helper) {
+    console.log("Turned on (the setup command's --start-from-web, with its one-time code from your Sessions page): starting threads on this Mac from AgentMingo.");
+    for (const line of startFromWebSaid()) console.log(line);
+    if (!helper.answers) console.log(STARTS_ANSWERS_OFF_SAID);
+  } else if (starts && starts !== "on") {
+    console.log(startsStayedOffSaid(starts));
+  } else if (helper && helper.off) {
+    console.log(`Starting threads from AgentMingo is off here (--no-start-from-web): its helper stopped${helper.off.removed ? `, and ${tildePath(helper.off.file)} is gone` : ""}.`);
+  }
   console.log(watchLine(config));
   console.log(
     "Sessions on a task whose project has a workflow for threads follow it step by step. Claude may report steps, and start a task's session, without asking: install allowed this script's step and start commands and the agentmingo MCP tools in Claude Code's permissions. What Claude writes for a step (the plan, for the plan step) and the files it attaches are sent.",
@@ -5955,7 +6979,8 @@ function registerMcp(home) {
 const DISCONNECT_TIMEOUT_MS = 5_000;
 
 /**
- * Takes this reporter's hooks, permission rules and MCP server out of Claude Code, disconnects this computer in
+ * Takes this reporter's hooks, permission rules and MCP server out of Claude Code (and stops the helper that starts
+ * threads from AgentMingo, taking its LaunchAgent away), disconnects this computer in
  * AgentMingo (each organization's connection, so the Sessions page stops listing it and its token stops working),
  * and forgets the connections. AgentMingo out of reach doesn't stop it: it says to disconnect on the Sessions page.
  */
@@ -5968,6 +6993,10 @@ async function uninstall(args) {
     const before = readSettings(settingsFile);
     writeSettings(settingsFile, before, withoutReporterHooks(before));
   }
+  // The helper that starts threads from AgentMingo (when it was on here, or its LaunchAgent is there): stopped, and its
+  // LaunchAgent and files taken away.
+  const plist = readText(helperPlistFile());
+  const helper = (config && config.startFromWeb === true) || (plist !== null && plist.includes(START_HELPER_MARKER)) ? unloadStartHelper(p) : null;
   const cli = args["no-mcp"] ? null : claudeCli();
   if (cli) spawnSync(cli, ["mcp", "remove", "-s", "user", "agentmingo"], { stdio: "ignore", timeout: CLAUDE_CLI_TIMEOUT_MS });
   // The hooks are out first, so nothing more is queued while AgentMingo is asked.
@@ -5978,6 +7007,7 @@ async function uninstall(args) {
   const disconnected = conns.filter((_, i) => gone[i]);
   const left = conns.filter((_, i) => !gone[i]);
   console.log(`Removed the AgentMingo hooks and permission rules from ${settingsFile}${cli ? ", and its MCP server from Claude Code" : ""}. Nothing more is sent.`);
+  if (helper && helper.removed) console.log(`Stopped the helper that starts threads from AgentMingo and removed ${tildePath(helper.file)}.`);
   if (disconnected.length) console.log(`Disconnected this computer in AgentMingo (${named(disconnected)}): its token no longer works.`);
   if (left.length) console.log(`Couldn't reach AgentMingo to disconnect this computer (${named(left)}): disconnect it on the Sessions page.`);
   const backup = `${settingsFile}.agentmingo-backup`;
@@ -6144,6 +7174,7 @@ function status(args) {
   }
   for (const line of countingLines(p, Date.now())) console.log(line);
   console.log(approvalsLine(config));
+  console.log(startFromWebLine(p, config));
   console.log(watchLine(config));
   console.log(hasLeanGit([join(claudeDir(), "CLAUDE.md")]) ? "Lean git rules: on (in your CLAUDE.md)." : "Lean git rules: not in your CLAUDE.md.");
   if (existsSync(p.log)) {
@@ -6216,6 +7247,9 @@ const OPTIONS = {
   unchecked: { type: "boolean" },
   approvals: { type: "boolean" },
   "no-approvals": { type: "boolean" },
+  "start-from-web": { type: "boolean" },
+  "no-start-from-web": { type: "boolean" },
+  once: { type: "boolean" },
 };
 
 export async function main(argv) {
@@ -6262,6 +7296,16 @@ export async function main(argv) {
     return 2;
   }
   if (command === "mcp") return runMcp(resolve(values.home || defaultHome()));
+  // What launchd runs (the LaunchAgent): its exit code says whether to start it again (startFromWebCommand).
+  if (command === "start-from-web" && mode === "helper") {
+    const home = resolve(values.home || defaultHome());
+    try {
+      return await startFromWebCommand(home, mode, { once: values.once === true });
+    } catch (e) {
+      log(paths(home), `start-from-web: the helper failed: ${e && e.message ? e.message : e}`);
+      return 1;
+    }
+  }
   try {
     if (command === "install") return await install(values);
     if (command === "uninstall") return await uninstall(values);
@@ -6288,6 +7332,9 @@ export async function main(argv) {
     if (command === "approvals" && ["on", "off", "status"].includes(mode)) {
       return await approvalsCommand(resolve(values.home || defaultHome()), mode, { wait: values.wait });
     }
+    if (command === "start-from-web" && ["on", "off", "status"].includes(mode)) return await startFromWebCommand(resolve(values.home || defaultHome()), mode);
+    // What the Terminal window the helper opened runs, once per start.
+    if (command === "run-start") return await runStart(resolve(values.home || defaultHome()), positionals[1], { noLaunch: values["no-launch"] === true });
     if (command === "share-files" && ["on", "off"].includes(mode)) {
       setConfig(resolve(values.home || defaultHome()), { shareFiles: mode === "on" });
       console.log(mode === "on" ? "Sharing edited file paths: sessions in the same repository get a short note about each other." : NOT_SHARING);
@@ -6308,7 +7355,7 @@ export async function main(argv) {
       return 0;
     }
     console.log(
-      "Usage: node reporter.mjs install --url <AgentMingo address> --org <organization> --code <setup code> [--no-titles] [--lean-git] [--share-files|--no-share-files] [--reviews|--no-reviews] [--no-mcp] [--no-auto-update] [--approvals|--no-approvals] | status | repos [add [owner/name] | remove <owner/name>] [--org <organization>] | start <task key> [--repo <name>] [--in <folder>] [--no-env | --env-all] [--no-launch] | lean-git on|off|status | titles on|off | share-files on|off | reviews on|off | auto-update on|off | approvals on [--wait <time>]|off|status | step <id> done|failed <summary> | mcp | uninstall",
+      "Usage: node reporter.mjs install --url <AgentMingo address> --org <organization> --code <setup code> [--no-titles] [--lean-git] [--share-files|--no-share-files] [--reviews|--no-reviews] [--no-mcp] [--no-auto-update] [--approvals|--no-approvals] [--start-from-web|--no-start-from-web] | status | repos [add [owner/name] | remove <owner/name>] [--org <organization>] | start <task key> [--repo <name>] [--in <folder>] [--no-env | --env-all] [--no-launch] | lean-git on|off|status | titles on|off | share-files on|off | reviews on|off | auto-update on|off | approvals on [--wait <time>]|off|status | start-from-web on|off|status | step <id> done|failed <summary> | mcp | uninstall",
     );
     return command ? 1 : 0;
   } catch (e) {
