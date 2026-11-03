@@ -33,7 +33,8 @@
  * - Where it works: its repository name and branch, whether the branch is pushed and how many of its commits aren't,
  *   how many files have changes not yet committed (a count, never their names or what changed), and the app it runs in.
  * - Counts from the session's transcript, from when the reporter first saw the session: token counts by model (with
- *   the model's name), tool calls counted by kind (git, GitHub's command line, tests, builds, installs, other shell
+ *   the model's name; split into base and long-context buckets per request when the model has a long-context pricing
+ *   tier — a request whose prompt exceeds the threshold lands in the long bucket), tool calls counted by kind (git, GitHub's command line, tests, builds, installs, other shell
  *   commands, reading files, edits, web, subagents, MCP tools, and any other tool) with how much output they produced and about how long
  *   they took, and git commands counted by subcommand (diff, log, status, push and so on) with how much output each
  *   produced. When a thread's transcript stops giving those counts (a Claude Code update can change how it writes
@@ -434,7 +435,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "22";
+export const VERSION = "23";
 const SCRIPT = fileURLToPath(import.meta.url);
 /**
  * What every request says it is: the script's name and version and, from version 19, this computer's platform (darwin,
@@ -6431,6 +6432,19 @@ function emptyModelUsage() {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
 }
 
+/** Token thresholds above which Anthropic bills at long-context rates (the pricing page's "for prompts over N tokens"). */
+export const LONG_CONTEXT_THRESHOLDS = { "claude-haiku-5-5": 100_000 };
+
+/** The threshold for a model id: an exact entry, or the entry it's a dated/tagged version of; 0 (no tier) otherwise. */
+export function longContextThreshold(model) {
+  const id = String(model).trim().toLowerCase().replace(/\[[a-z0-9]+\]$/, "");
+  if (LONG_CONTEXT_THRESHOLDS[id]) return LONG_CONTEXT_THRESHOLDS[id];
+  for (const [key, threshold] of Object.entries(LONG_CONTEXT_THRESHOLDS)) {
+    if (id.startsWith(key) && /^-(\d{8}|\d{4}-\d{2}-\d{2}|latest|0)$/.test(id.slice(key.length))) return threshold;
+  }
+  return 0;
+}
+
 const READ_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "NotebookRead"]);
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const WEB_TOOLS = new Set(["WebFetch", "WebSearch"]);
@@ -6529,16 +6543,35 @@ function takeUsage(acc, m) {
   acc.seen.push(m.id);
   if (acc.seen.length > SEEN_IDS) acc.seen.splice(0, acc.seen.length - SEEN_IDS);
   if (typeof m.model !== "string" || !m.model || m.model.startsWith("<")) return;
-  const t = acc.usage[m.model] || (acc.usage[m.model] = emptyModelUsage());
-  t.input += count(u.input_tokens);
-  t.output += count(u.output_tokens);
-  t.cacheRead += count(u.cache_read_input_tokens);
+  const inputTokens = count(u.input_tokens);
+  const outputTokens = count(u.output_tokens);
+  const cacheReadTokens = count(u.cache_read_input_tokens);
   const created = u.cache_creation;
+  let cacheWrite5m = 0;
+  let cacheWrite1h = 0;
   if (created && (created.ephemeral_1h_input_tokens != null || created.ephemeral_5m_input_tokens != null)) {
-    t.cacheWrite5m += count(created.ephemeral_5m_input_tokens);
-    t.cacheWrite1h += count(created.ephemeral_1h_input_tokens);
+    cacheWrite5m = count(created.ephemeral_5m_input_tokens);
+    cacheWrite1h = count(created.ephemeral_1h_input_tokens);
   } else {
-    t.cacheWrite5m += count(u.cache_creation_input_tokens);
+    cacheWrite5m = count(u.cache_creation_input_tokens);
+  }
+  // A request whose prompt (all input-side tokens) exceeds the model's threshold is long-context.
+  const threshold = longContextThreshold(m.model);
+  const promptTokens = inputTokens + cacheReadTokens + cacheWrite5m + cacheWrite1h;
+  const long = threshold > 0 && promptTokens > threshold;
+  const t = acc.usage[m.model] || (acc.usage[m.model] = emptyModelUsage());
+  if (long) {
+    t.longInput = (t.longInput || 0) + inputTokens;
+    t.longOutput = (t.longOutput || 0) + outputTokens;
+    t.longCacheRead = (t.longCacheRead || 0) + cacheReadTokens;
+    t.longCacheWrite5m = (t.longCacheWrite5m || 0) + cacheWrite5m;
+    t.longCacheWrite1h = (t.longCacheWrite1h || 0) + cacheWrite1h;
+  } else {
+    t.input += inputTokens;
+    t.output += outputTokens;
+    t.cacheRead += cacheReadTokens;
+    t.cacheWrite5m += cacheWrite5m;
+    t.cacheWrite1h += cacheWrite1h;
   }
 }
 
