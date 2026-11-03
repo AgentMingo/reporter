@@ -217,9 +217,12 @@
  * Claude Code's state file (~/.claude.json, or the file Claude Code keeps its state in when you set $CLAUDE_CONFIG_DIR or
  * $CLAUDE_CODE_CUSTOM_OAUTH_URL, or still have its older ~/.claude/.config.json), right before run-start (below) starts
  * Claude Code: for your main clone of the task's repository (say ~/code/web, not the task's folder ~/code/web-WEB-12:
- * Claude Code keys a worktree's trust to the clone it was made from), projects["<that clone's folder>"]
- * .hasTrustDialogAccepted set to true (the entry made when there's none), which is what answering yes to Claude Code's
- * question whether to trust a folder writes. Nothing else in that file changes, and nothing else marks a folder trusted:
+ * Claude Code keys a worktree's trust to the clone it was made from), whether the reporter already knew that clone (a
+ * thread ran in it, or you ran `start` or the setup command inside it) or, from version 22, found it by looking (in the
+ * folders Claude Code has opened, or by the repository's name in ~/code and the like: below), and either way only a
+ * clone whose origin, as git says, is the task's repository, projects["<that clone's folder>"].hasTrustDialogAccepted
+ * set to true (the entry made when there's none), which is what answering yes to Claude Code's question whether to
+ * trust a folder writes. Nothing else in that file changes, and nothing else marks a folder trusted:
  * not install (which registers the MCP server there through `claude mcp add`), the hooks or `start`. That clone then
  * stays trusted for every Claude Code session in it and its worktrees, on any branch, until you set the entry back to
  * false, remove it, or uninstall (which sets back each clone a start marked that's still trusted, in the state file
@@ -239,8 +242,27 @@
  * hold production secrets that a thread in that folder could read; --env-all copies every one, and works only in
  * your own terminal, never from Claude's Bash tool; --no-env copies none), and
  * starts Claude Code there, from any folder: the reporter notes where each repository is cloned when sessions start
- * in it (in ~/.agentmingo/repos.json). Run inside a thread (from Claude's own Bash tool), it starts no second Claude:
- * it prints the folder and how to move the thread there. The start_task MCP tool does the same for a thread that's
+ * in it, when you run `start` inside it or name it with --in, and the clone install runs in (in
+ * ~/.agentmingo/repos.json). From version 22, when it doesn't know a repository's clone yet (no thread has run in it
+ * here), `start`, the start_task tool and run-start (below) look for one on this computer: first in the folders Claude
+ * Code has opened (the keys of `projects` in its state file, ~/.claude.json or the one it keeps when you set
+ * $CLAUDE_CONFIG_DIR, only read here; the one opened most recently first), then for a folder named like the repository
+ * (or an earlier name of it) in common code folders in your home folder (~/code, ~/Code, ~/src, ~/git, ~/projects,
+ * ~/Projects, ~/dev, ~/Developer, ~/repos, ~/workspace, ~/work, ~/GitHub, ~/Documents/GitHub), one code folder at a
+ * time, one level down or two (~/code/acme/web), then in your home folder itself (~/web), going by the folder's name
+ * alone. Folders macOS asks about before Terminal may look in them (Desktop, Documents, Downloads, iCloud Drive, cloud
+ * storage folders and other disks) come last, only when nothing else matched, so only then can a start make macOS ask
+ * Terminal for access (saying no only skips them); so does a folder that leads into one through a link (~/code linked
+ * to ~/Documents/code), or a worktree whose clone is in one, whose links are followed by name up to there and no
+ * further. A folder whose git config names the repository (or includes another
+ * file), or any repository named like it, is then checked with git (`rev-parse` and `config --get` only, with
+ * core.fsmonitor off, so no program the repository names runs), and taken only when its origin is the repository: its
+ * main checkout, never your home folder, the disk's root, or a folder in ~/.agentmingo. Finding several in one place,
+ * it takes the first and says which others it found there. It notes the clone it found (in repos.json, as one a
+ * thread ran in), so it looks only once, and run-start marks it trusted in Claude Code as it does a clone it knew
+ * (below). All of it on this computer: nothing new is sent. A start from AgentMingo that finds none tells it where it
+ * looks, never what it found. Run inside a thread (from Claude's own Bash tool), it starts no second Claude: it prints the
+ * folder and how to move the thread there. The start_task MCP tool does the same for a thread that's
  * asked to work on a task: Claude asks you before it switches the thread into the task's folder (Claude Code's
  * EnterWorktree), or gives you a link that opens a new Claude Code session there. Called in a thread already in that
  * folder (one `start` or run-start began there with "Work on <task key>"), it also brings the workflow step the task's
@@ -254,13 +276,17 @@
  * When you did, AgentMingo sends a start's id and the task's key, nothing else. The helper checks both, takes the start
  * (so it runs once), and opens Terminal (`open -g -a Terminal`) on a small file in ~/.agentmingo/starts that runs
  * `run-start <id>` there: a fixed command built on this computer. In that window run-start makes the task's folder as
- * `start` does (the same safe .env files), and runs Claude Code there with the prompt "Work on <task key>", as you'd
- * start it yourself: Claude Code's own permission settings apply (no permission flag, and no settings or MCP config of
+ * `start` does (next to the clone it knows or finds as `start` does, with the same safe .env files), and runs Claude
+ * Code there with the prompt "Work on <task key>", as you'd start it yourself: Claude Code's own permission settings
+ * apply (no permission flag, and no settings or MCP config of
  * AgentMingo's). Nobody may be at this Mac to answer Claude Code's question whether to trust the folder (from Claude
  * Code 2.1.232 it asks before any hook runs, for a worktree about the clone it was made from), so from version 21,
  * right before it starts Claude Code, run-start marks your main clone of the task's repository (its main checkout; it
  * asks about no other folder, so no other is marked) as trusted in Claude Code's state file (above), when it isn't
- * already, and says so in that window and in reporter.log. It holds Claude Code's own lock on that file while it reads
+ * already, and says so in that window and in reporter.log: the clone it already knew or, from version 22, the one it
+ * found by looking (above), whichever it starts from, once git says its origin is the task's repository. When it
+ * couldn't mark it (below), it says so there and tells AgentMingo, whose task page then says Claude Code may ask
+ * whether to trust it. It holds Claude Code's own lock on that file while it reads
  * and writes it (`<file>.lock`, as Claude Code names it), and writes it through a temporary file that's on disk before
  * it takes the file's place. A state file that isn't there, is empty or isn't JSON is left alone, and while Claude Code
  * is saving it (its lock held) it waits a moment, then leaves it alone (Claude Code then asks, as before). Trusting a
@@ -268,7 +294,8 @@
  * allow rules, environment variables, helper commands (an apiKeyHelper, an MCP server's headersHelper), extra
  * directories, and the MCP servers its .mcp.json and settings approve, from the task's branch (which may hold others'
  * changes). AgentMingo hears how it went (opened, started, or why it didn't, in one line with your home folder shown as
- * ~, the repository's name, and the names of the repositories it marked trusted), and the thread's first report says
+ * ~, the repository's name, and the names of the repositories it marked trusted, or that it couldn't mark the clone,
+ * so Claude Code may ask), and the thread's first report says
  * which start it came from, with those names again (run-start puts them in AGENTMINGO_START_TRUSTED, beside
  * AGENTMINGO_START), so they're heard even when that word was lost. Its prompt
  * reaches the hooks as the thread's first message a second after it starts, before that report has gone: that hook
@@ -403,11 +430,11 @@ import {
 import { createServer } from "node:http";
 import { homedir, tmpdir, uptime } from "node:os";
 import { createInterface } from "node:readline";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "21";
+export const VERSION = "22";
 const SCRIPT = fileURLToPath(import.meta.url);
 /**
  * What every request says it is: the script's name and version and, from version 19, this computer's platform (darwin,
@@ -2069,13 +2096,25 @@ async function reportStep(home, id, outcome, words, flags = {}) {
 
 const TASK_KEY = /^[A-Za-z][A-Za-z0-9]{1,9}-\d{1,7}$/;
 
+/**
+ * What cloneOf gives git before its command: git's file system monitor off, so looking at a folder (findClone looks at
+ * ones it found by itself) never starts a program that folder's git config names. rev-parse and config --get run no
+ * hook, pager or filter either.
+ */
+const GIT_LOOK = ["-c", "core.fsmonitor=false"];
+
 /** The clone a folder belongs to (for a worktree, the clone it was added from): { repo, clone }, or null. */
 export function cloneOf(cwd, run = git) {
-  const common = run(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  const repo = repoName(run(cwd, ["config", "--get", "remote.origin.url"]));
+  const common = run(cwd, [...GIT_LOOK, "rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const repo = repoName(run(cwd, [...GIT_LOOK, "config", "--get", "remote.origin.url"]));
   // A bare repository has no folder to work in.
   if (!common || !repo || basename(common) !== ".git") return null;
   return { repo, clone: dirname(common) };
+}
+
+/** Whether `c` (cloneOf's answer) is a clone of the repository by one of its `names` (namesOf's). */
+function isCloneOf(c, names) {
+  return Boolean(c) && names.includes(c.repo.toLowerCase());
 }
 
 /** Remembers where this computer's clone of a folder's repository is. Never throws. */
@@ -2097,41 +2136,444 @@ function namesOf(repository) {
 }
 
 /**
- * The clone of `repository` ({ fullName, formerNames }) to start from: the one named with --in, the one this folder is
- * in, or the one a session was in. A clone made before a rename still has the repository's earlier name as its origin.
+ * The folders in the home folder where people keep their clones (macOS's file system doesn't tell ~/code from ~/Code:
+ * each folder is looked in once). findClone looks in each that's there, one at a time, for a folder named like the
+ * repository, one level down (~/code/web) or two, for an owner's folder (~/code/acme/web). ~/Documents/GitHub (GitHub
+ * Desktop's) comes last: macOS asks before an app looks in Documents (ASKED_FOLDERS).
  */
-function findClone(p, repository, where, cwd, run) {
-  const repo = repository.fullName;
-  const names = namesOf(repository);
-  const same = (c) => Boolean(c) && names.includes(c.repo.toLowerCase());
-  if (where) {
-    const c = cloneOf(resolve(where), run);
-    if (!same(c)) throw new Error(`${where} isn't a clone of ${repo}${c ? ` (it's ${c.repo})` : ""}.`);
-    return c.clone;
+export const CODE_FOLDERS = ["code", "Code", "src", "git", "projects", "Projects", "dev", "Developer", "repos", "workspace", "work", "GitHub", join("Documents", "GitHub")];
+
+/**
+ * The folders in the home folder macOS asks you about before an app looks in them (Privacy & Security → Files and
+ * Folders): Desktop, Documents, Downloads, iCloud Drive (Library/Mobile Documents) and other cloud storage
+ * (Library/CloudStorage); and other disks (/Volumes, lookLimits). run-start runs in Terminal, which may never have been
+ * let in, and nobody may be at the Mac to answer: findClone looks in them only once it found no clone anywhere else,
+ * and there it stops at the first.
+ */
+const ASKED_FOLDERS = ["Desktop", "Documents", "Downloads", join("Library", "Mobile Documents"), join("Library", "CloudStorage")];
+
+/** The most findClone reads of one of git's own files (a worktree's .git file, commondir, a config) before it runs git. */
+const GIT_FILE_MAX_BYTES = 256 * 1024;
+
+/** Where findClone found a clone it looked for, in its words. */
+const CLONE_FOUND_FROM = { opened: "a folder Claude Code has opened", named: "a folder named like the repository" };
+
+/** Whether there's a folder at `path` (through a link). */
+function isFolder(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
   }
-  const here = cloneOf(cwd, run);
-  if (same(here)) return here.clone;
-  const remembered = readJson(p.repos) || {};
-  for (const name of names) {
-    const known = remembered[name];
-    if (typeof known === "string" && existsSync(known) && same(cloneOf(known, run))) return known;
-  }
-  throw new Error(`I don't know where your clone of ${repo} is yet. Run this once from inside it, or add --in <its folder>.`);
+}
+
+/** Whether `folder` is `dir` or a folder in it (both as realTarget gives them). */
+function within(folder, dir) {
+  const rel = relative(dir, folder);
+  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
 }
 
 /**
- * Where this computer's clone of another of the organization's repositories ({ fullName, formerNames }) is: the one a
- * thread was in, else a folder named for it next to `clone` (remembered once found). Null when there's neither.
+ * What findClone never takes, as realTarget gives them (`home`, the home folder `homeFolder`, and `reporter`, the
+ * reporter's own folder), and where it looks last (`asked`: ASKED_FOLDERS in the home folder, as given and as
+ * realTarget gives it, and /Volumes, lowercased for askedAbout).
  */
-function otherClone(p, known, clone, repository, run) {
+function lookLimits(p, homeFolder) {
+  const home = realTarget(homeFolder);
+  const asked = [...new Set([homeFolder, home])].flatMap((h) => ASKED_FOLDERS.map((f) => join(h, f)));
+  return { home, reporter: realTarget(p.home), asked: [...asked, "/Volumes"].map((f) => f.toLowerCase()) };
+}
+
+/**
+ * Whether `folder` is in a folder macOS asks about before an app looks in it (`limits.asked`, lookLimits'), by its path
+ * alone, in any case (macOS's file system doesn't tell ~/documents from ~/Documents): nothing on disk is looked at.
+ */
+function askedAbout(folder, limits) {
+  const f = String(folder).toLowerCase();
+  return limits.asked.some((a) => f === a || f.startsWith(`${a}${sep}`));
+}
+
+/**
+ * Whether `path` (absolute) is in a folder macOS asks about (askedAbout), by its path or by where a link on it leads:
+ * its links are followed one part at a time from the disk's root (lstat and readlink, as realpath does), and each
+ * part's path is judged before anything is looked at there, so nothing in such a folder is ever looked at. False when
+ * it isn't there, or its links go round.
+ */
+function leadsIntoAsked(path, limits) {
+  if (!isAbsolute(String(path))) return false;
+  let rest = String(path).split(sep);
+  let at = sep;
+  for (let links = 0; rest.length; ) {
+    const part = rest.shift();
+    if (part === "" || part === ".") continue;
+    // `at` has no link in it, so its parent is the one on disk.
+    if (part === "..") {
+      at = dirname(at);
+      continue;
+    }
+    const next = join(at, part);
+    if (askedAbout(next, limits)) return true;
+    let to = null;
+    try {
+      if (lstatSync(next).isSymbolicLink()) to = readlinkSync(next);
+    } catch {
+      return false;
+    }
+    if (to === null) {
+      at = next;
+      continue;
+    }
+    links += 1;
+    if (links > 40) return false;
+    rest = [...to.split(sep), ...rest];
+    if (isAbsolute(to)) at = sep;
+  }
+  return false;
+}
+
+/**
+ * Whether findClone may take `folder` (one it found by itself, or the clone git says that one is in): a folder that's
+ * there, not the home folder or the disk's root (as startedClones), and not in the reporter's own folder (`limits`,
+ * lookLimits').
+ */
+function mayTake(folder, limits) {
+  if (typeof folder !== "string" || !isAbsolute(folder) || !isFolder(folder)) return false;
+  const real = realTarget(folder);
+  return real !== limits.home && dirname(real) !== real && !within(real, limits.reporter);
+}
+
+/**
+ * The text of one of git's own small files (a worktree's .git file, its commondir, a repository's config), for
+ * findClone's look before it runs git: only a regular file of at most GIT_FILE_MAX_BYTES. It's opened without waiting
+ * (O_NONBLOCK) and checked once open, so a FIFO there (which a read would wait on forever) or a device (/dev/zero, read
+ * without end) is never read, as git itself reads no .git that isn't a regular file. Null otherwise.
+ */
+function gitFileText(file) {
+  let fd;
+  try {
+    fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK || 0));
+  } catch {
+    return null;
+  }
+  try {
+    const st = fstatSync(fd);
+    return st.isFile() && st.size <= GIT_FILE_MAX_BYTES ? readFileSync(fd, "utf8") : null;
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * The folder git keeps the files of `folder`'s repository in (its config among them), from the files alone, without
+ * running git: the .git folder in it or in the nearest folder above, or for a worktree (whose .git is a file, "gitdir:
+ * …"), the clone's .git its commondir names (both read with gitFileText). Null in no repository, in a bare one (it has
+ * no folder to work in), or where .git is neither a folder nor such a file. With `limits` (lookLimits'), a .git that's a
+ * link, or a worktree's gitdir, that leads into a folder macOS asks about (leadsIntoAsked) is returned as it is, nothing
+ * in it read, for clonesIn to see where it is.
+ */
+function gitFilesOf(folder, limits = null) {
+  for (let dir = folder; ; dir = dirname(dir)) {
+    const dotGit = join(dir, ".git");
+    if (limits && isLink(dotGit) && leadsIntoAsked(dotGit, limits)) return dotGit;
+    let found = null;
+    try {
+      found = statSync(dotGit);
+    } catch {
+      // None here: the folder above.
+    }
+    if (found && found.isDirectory()) return dotGit;
+    if (found) {
+      const named = /^gitdir:\s*(.+?)\s*$/m.exec(gitFileText(dotGit) || "");
+      if (!named) return null;
+      const gitdir = resolve(dir, named[1]);
+      if (limits && leadsIntoAsked(gitdir, limits)) return gitdir;
+      const common = (gitFileText(join(gitdir, "commondir")) || "").trim();
+      return common ? resolve(gitdir, common) : gitdir;
+    }
+    if (dirname(dir) === dir) return null;
+  }
+}
+
+/**
+ * Whether a repository's config (`text`, lowercased) may give it an origin by one of `names` (lowercased): it names
+ * one, or it includes another file, which only git follows. A quick look before cloneOf, which runs git twice (about 15
+ * ms each): a list of hundreds of folders costs milliseconds.
+ */
+function configMayName(text, names) {
+  return /^\s*\[include/m.test(text) || names.some((n) => text.includes(n));
+}
+
+/** When Claude Code last started a session in a folder, from its state file's entry for it (lastStartTime, 2.1): 0 when it doesn't say. */
+function lastOpened(entry) {
+  const at = isRecord(entry) ? entry.lastStartTime : null;
+  return typeof at === "number" && Number.isFinite(at) && at > 0 ? at : 0;
+}
+
+/**
+ * The folders Claude Code has opened: the keys of `projects` in its state file (claudeStateFile's, from `env`, and `cwd`
+ * for a relative $CLAUDE_CONFIG_DIR), only read here. The one opened most recently first (lastOpened), then those that
+ * don't say when, in the file's order. None when the file isn't there or isn't Claude Code's JSON.
+ */
+function openedFolders(env, cwd) {
+  const read = readClaudeState(claudeStateFile(env, cwd));
+  if (read.problem) return [];
+  return Object.keys(read.projects)
+    .map((folder, i) => ({ folder, i, at: lastOpened(read.projects[folder]) }))
+    .sort((a, b) => b.at - a.at || a.i - b.i)
+    .map((e) => e.folder);
+}
+
+/** The entries of folder `dir` but hidden ones, by name: none when it can't be read. */
+function entriesOf(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => !e.name.startsWith("."))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The folders named like the repository (`wanted`: the last part of each of its names, lowercased) in one code folder,
+ * `base`: one level down (~/code/web), then two, for an owner's folder (~/code/acme/web). Only names are compared here:
+ * no git runs. With `limits` (lookLimits'), an owner's folder that's a link into a folder macOS asks about
+ * (leadsIntoAsked) isn't looked in: it goes in `later`, for namedInOwners once nothing else matched.
+ */
+function namedIn(base, wanted, limits = null, later = null) {
+  const near = [];
+  const deeper = [];
+  for (const entry of entriesOf(base)) {
+    const folder = join(base, entry.name);
+    if (wanted.has(entry.name.toLowerCase())) near.push(folder);
+    if (entry.isSymbolicLink() && limits && later && leadsIntoAsked(folder, limits)) {
+      later.push(folder);
+      continue;
+    }
+    if (!entry.isDirectory() && !(entry.isSymbolicLink() && isFolder(folder))) continue;
+    deeper.push(...namedInOwners([folder], wanted));
+  }
+  return [...near, ...deeper];
+}
+
+/** The folders named like the repository (`wanted`, as namedIn's) in each of `owners` (owners' folders, ~/code/acme). */
+function namedInOwners(owners, wanted) {
+  return owners.flatMap((owner) => entriesOf(owner).filter((e) => wanted.has(e.name.toLowerCase())).map((e) => join(owner, e.name)));
+}
+
+/**
+ * Whether to look in code folder `base`: it's a folder, and not one looked in already by another spelling (`seen`, by
+ * device and inode: ~/Code is ~/code on a Mac, or a link). Notes it in `seen`.
+ */
+function unseenFolder(base, seen) {
+  let st = null;
+  try {
+    st = statSync(base);
+  } catch {
+    // Not there.
+  }
+  if (!st || !st.isDirectory() || seen.has(`${st.dev}:${st.ino}`)) return false;
+  seen.add(`${st.dev}:${st.ino}`);
+  return true;
+}
+
+/**
+ * The clones of the repository among `folders`, each once, in the folders' order (only the first, with `opts.first`):
+ * the main checkout of a folder's repository (a worktree's clone) whose origin, as git says (cloneOf), is one of its
+ * names (`s.names`), when findClone may take both (mayTake, with `s.limits`). git runs only for a repository not asked
+ * about yet (`s.looked`, by gitFilesOf's folder) whose config is a small regular file (gitFileText) that names the
+ * repository or includes another (configMayName), or any such config for a folder named like it (`opts.byName`): a
+ * folder it may not take, in no repository, or with a config that doesn't, costs no git. A clone of another repository
+ * goes in `s.otherRepos` ({ clone, repo }), for what findClone says when it finds none. With `opts.later` (before the
+ * folders macOS asks about), a folder that's in one of those by where a link on it leads, a worktree whose clone is
+ * in one, or a clone git says is in one (leadsIntoAsked) goes in `opts.later` instead, looked at no further: findClone
+ * takes it, if at all, only with those, last.
+ */
+function clonesIn(folders, s, opts = {}) {
+  const clones = [];
+  for (const folder of folders) {
+    if (opts.later && leadsIntoAsked(folder, s.limits)) {
+      opts.later.push(folder);
+      continue;
+    }
+    if (!mayTake(folder, s.limits)) continue;
+    const gitFiles = gitFilesOf(folder, opts.later ? s.limits : null);
+    if (!gitFiles || s.looked.has(gitFiles)) continue;
+    if (opts.later && leadsIntoAsked(gitFiles, s.limits)) {
+      opts.later.push(folder);
+      continue;
+    }
+    const config = gitFileText(join(gitFiles, "config"));
+    if (config === null || (!opts.byName && !configMayName(config.toLowerCase(), s.names))) continue;
+    s.looked.add(gitFiles);
+    const c = cloneOf(folder, s.run);
+    if (!c || !mayTake(c.clone, s.limits)) continue;
+    if (!isCloneOf(c, s.names)) {
+      if (!s.otherRepos.some((o) => o.clone === c.clone)) s.otherRepos.push({ clone: c.clone, repo: c.repo });
+    } else if (opts.later && askedAbout(c.clone, s.limits)) {
+      // git says its clone is in one (where the files above didn't): asked about again then.
+      s.looked.delete(gitFiles);
+      opts.later.push(folder);
+    } else if (!clones.includes(c.clone)) {
+      clones.push(c.clone);
+      if (opts.first) break;
+    }
+  }
+  return clones;
+}
+
+/**
+ * Where findClone looks for a clone of a repository (`names`) that nothing told it of, stopping at the first place that
+ * has one: the folders Claude Code has opened (openedFolders, from `look.env` and `look.cwd`); then the folders named
+ * like it in each common code folder of `look.homeFolder` in turn (CODE_FOLDERS), then in the home folder itself (~/web,
+ * where `git clone` in a new terminal puts it). Folders macOS asks about (askedAbout) come only after all of those
+ * found none, and so does a folder that's in one by where a link on it leads, or a worktree whose clone is in one
+ * (leadsIntoAsked: those wait in `later`, looked at no further); there it takes the first it finds: the ones Claude
+ * Code opened (most recent first), then by name (those that waited, then the code folders that are such links, then
+ * ~/Documents/GitHub). Returns { from (CLONE_FOUND_FROM's key, or null when it found none), clones (the one to take
+ * first), otherRepos (clones of another repository it found on the way, clonesIn's) }.
+ */
+function searchClone(p, names, run, look) {
+  const homeFolder = look.homeFolder || homedir();
+  const s = { names, run, limits: lookLimits(p, homeFolder), looked: new Set(), otherRepos: [] };
+  const wanted = new Set(names.map((n) => n.split("/").pop()));
+  const opened = openedFolders(look.env || process.env, look.cwd);
+  const bases = CODE_FOLDERS.map((f) => join(homeFolder, f));
+  const inHome = [...wanted].filter((n) => !n.startsWith(".")).map((n) => join(homeFolder, n));
+  const seen = new Set();
+  const later = { opened: [], bases: [], named: [], owners: [] };
+  let clones = clonesIn(opened.filter((f) => !askedAbout(f, s.limits)), s, { later: later.opened });
+  if (clones.length) return { from: "opened", clones, otherRepos: s.otherRepos };
+  for (const base of bases.filter((b) => !askedAbout(b, s.limits))) {
+    // A code folder that's a link into one macOS asks about (~/code to ~/Documents/code): looked in last.
+    if (leadsIntoAsked(base, s.limits)) {
+      later.bases.push(base);
+      continue;
+    }
+    clones = unseenFolder(base, seen) ? clonesIn(namedIn(base, wanted, s.limits, later.owners), s, { byName: true, later: later.named }) : [];
+    if (clones.length) return { from: "named", clones, otherRepos: s.otherRepos };
+  }
+  clones = clonesIn(inHome.filter((f) => !askedAbout(f, s.limits)), s, { byName: true, later: later.named });
+  if (clones.length) return { from: "named", clones, otherRepos: s.otherRepos };
+  // Nothing anywhere else: now the folders macOS may ask Terminal about, stopping at the first clone there.
+  const waited = new Set(later.opened);
+  clones = clonesIn(opened.filter((f) => askedAbout(f, s.limits) || waited.has(f)), s, { first: true });
+  if (clones.length) return { from: "opened", clones, otherRepos: s.otherRepos };
+  clones = clonesIn([...later.named, ...namedInOwners(later.owners, wanted)], s, { byName: true, first: true });
+  if (clones.length) return { from: "named", clones, otherRepos: s.otherRepos };
+  for (const base of [...later.bases, ...bases.filter((b) => askedAbout(b, s.limits))]) {
+    clones = unseenFolder(base, seen) ? clonesIn(namedIn(base, wanted), s, { byName: true, first: true }) : [];
+    if (clones.length) return { from: "named", clones, otherRepos: s.otherRepos };
+  }
+  clones = clonesIn(inHome.filter((f) => askedAbout(f, s.limits)), s, { byName: true, first: true });
+  return { from: clones.length ? "named" : null, clones, otherRepos: s.otherRepos };
+}
+
+/** What `start` (and the start_task tool, and run-start) says of a clone findClone found by itself. */
+function cloneFoundSaid(repo, found, key) {
+  const [clone, ...others] = found.clones;
+  const said = `Found your clone of ${repo} at ${tildePath(clone)} (${CLONE_FOUND_FROM[found.from]}).`;
+  if (!others.length) return said;
+  return `${said} Also found ${others.map(tildePath).join(", ")}: to start from another, start a thread in it once, or run node ~/.agentmingo/reporter.mjs start ${key} --in <its folder>`;
+}
+
+/**
+ * What findClone says when no clone of `repository` was found on this computer (no_clone, for a start from AgentMingo):
+ * where it looked, or the folders it found that are clones of another repository by their origin (`otherRepos`,
+ * searchClone's: a fork, say, whose upstream is the repository), which --in wouldn't take either. Said here only
+ * (the window, the terminal, Claude's tool): AgentMingo hears cloneNotFoundSent's.
+ */
+function cloneNotFoundSaid(repository, key, otherRepos) {
+  const repo = repository.fullName;
+  const [owner, name] = String(repo).split("/");
+  if (!otherRepos.length) return cloneNotFoundSent(repository, key, otherRepos);
+  const theirs = otherRepos.slice(0, 3).map((o) => `${tildePath(o.clone)}'s origin is ${o.repo}`);
+  return `Couldn't find a clone of ${repo} on this computer: ${theirs.join("; ")}, and a start needs a clone whose origin is ${repo}. Clone ${repo} (say to ~/code/${owner}/${name}) and start again, ${cloneElsewhereSaid(key)}`;
+}
+
+/**
+ * What a start from AgentMingo tells it when no clone was found (no_clone's detail): where it looks, which is the same
+ * on every computer, and nothing it found: no folder's path, no other repository's name (cloneNotFoundSaid's, said on
+ * the computer only), so a search sends nothing new.
+ */
+function cloneNotFoundSent(repository, key, otherRepos) {
+  const repo = repository.fullName;
+  const [owner, name] = String(repo).split("/");
+  if (otherRepos.length) {
+    return `Couldn't find a clone of ${repo} on this computer: the folders named like it that it found have another origin (its window names them). Clone ${repo} (say to ~/code/${owner}/${name}) and start again, ${cloneElsewhereSaid(key)}`;
+  }
+  return `Couldn't find a clone of ${repo} on this computer: none in the folders Claude Code has opened, nor a folder named ${name} in ~, ~/code, ~/src, ~/git, ~/projects or the like. Clone it into ~/code and start again, ${cloneElsewhereSaid(key)}`;
+}
+
+/** The end of what findClone says when it found no clone: how to start from a clone somewhere else. */
+function cloneElsewhereSaid(key) {
+  return `or if it's elsewhere: node ~/.agentmingo/reporter.mjs start ${key} --in <its folder>`;
+}
+
+/**
+ * The clone of `repository` ({ fullName, formerNames }) to start from, as { clone, found } (`found`: what it says of a
+ * clone it found by itself; null otherwise): the one named with --in, the one this folder (`cwd`) is in, the one a
+ * session (or install) was in (repos.json), or from reporter 22 one it finds on this computer (searchClone, logging
+ * which, and which others it found). A clone made before a rename still has the repository's earlier name as its
+ * origin. `look`: { key (the task's, for what it says), env (Claude Code's state file is found from it), homeFolder }.
+ * taskFolder notes the one it takes (rememberClone), one it found by itself too, so the next start needn't look. When
+ * it finds none, its error (no_clone) says what it found here, and carries what AgentMingo may hear (`sent`).
+ */
+export function findClone(p, repository, where, cwd, run = git, look = {}) {
+  const repo = repository.fullName;
+  const names = namesOf(repository);
+  if (where) {
+    const c = cloneOf(resolve(where), run);
+    if (!isCloneOf(c, names)) throw new Error(`${where} isn't a clone of ${repo}${c ? ` (it's ${c.repo})` : ""}.`);
+    return { clone: c.clone, found: null };
+  }
+  const here = cloneOf(cwd, run);
+  if (isCloneOf(here, names)) return { clone: here.clone, found: null };
+  const remembered = readJson(p.repos) || {};
+  for (const name of names) {
+    const known = remembered[name];
+    if (typeof known === "string" && existsSync(known) && isCloneOf(cloneOf(known, run), names)) return { clone: known, found: null };
+  }
+  const key = look.key || "<task key>";
+  const found = searchClone(p, names, run, { ...look, cwd });
+  if (!found.clones.length) throw startError(cloneNotFoundSaid(repository, key, found.otherRepos), "no_clone", repo, cloneNotFoundSent(repository, key, found.otherRepos));
+  const others = found.clones.slice(1);
+  log(p, `start: took ${tildePath(found.clones[0])} as the clone of ${repo} (${CLONE_FOUND_FROM[found.from]})${others.length ? `; it found ${others.map(tildePath).join(", ")} too` : ""}`);
+  return { clone: found.clones[0], found: cloneFoundSaid(repo, found, key) };
+}
+
+/**
+ * Notes the clone install runs in (rememberClone), when it runs inside one: a setup command run in a terminal there, or
+ * pasted into a thread there, so a start from AgentMingo finds that clone at once. Not one findClone wouldn't take
+ * (mayTake: the home folder, when it's a repository of its own, say). Never throws.
+ */
+function rememberSetupFolder(p, run = git) {
+  let cwd;
+  try {
+    cwd = process.cwd();
+  } catch {
+    // The folder it runs in is gone.
+    return;
+  }
+  const c = cloneOf(cwd, run);
+  if (c && mayTake(c.clone, lookLimits(p, homedir()))) rememberClone(p, c.clone, run);
+}
+
+/**
+ * Where this computer's clone of another of the organization's repositories ({ fullName, formerNames }) is: the one
+ * repos.json remembers (`known`), else a folder named for it next to `clone`, looked for again each time: it isn't
+ * remembered, so it never becomes a clone a later start of that repository takes (and marks trusted) without finding
+ * it itself. Null when there's neither.
+ */
+function otherClone(known, clone, repository, run) {
   const names = namesOf(repository);
   const at = names.map((n) => known[n]).find((f) => typeof f === "string" && existsSync(f));
   if (at) return at;
   const sibling = join(dirname(clone), String(repository.fullName).split("/").pop() || "");
   const found = existsSync(sibling) ? cloneOf(sibling, run) : null;
-  if (!found || !names.includes(found.repo.toLowerCase())) return null;
-  rememberClone(p, sibling, run);
-  return found.clone;
+  return isCloneOf(found, names) ? found.clone : null;
 }
 
 /**
@@ -2226,11 +2668,15 @@ export function switchGuidance(taskKey, folder, branch, dirs = []) {
   ].join("\n");
 }
 
-/** An error that says why, for a start from AgentMingo to report (REPORTER_START_FAILURES), and the repository when known. */
-function startError(message, reason, repo) {
+/**
+ * An error that says why, for a start from AgentMingo to report (REPORTER_START_FAILURES), the repository when known,
+ * and `sent`, what AgentMingo hears as its detail when that's less than its message (cloneNotFoundSent's).
+ */
+function startError(message, reason, repo, sent) {
   const e = new Error(message);
   e.reason = reason;
   if (repo) e.repo = repo;
+  if (typeof sent === "string") e.sent = sent;
   return e;
 }
 
@@ -2299,9 +2745,13 @@ export function terminalSafe(value) {
 /**
  * What `start`, the start_task tool and run-start share: asks AgentMingo for the task (its branch, and the repository with
  * its main branch; `opts.connection`, only that connection: a start from AgentMingo is its organization's), checks the
- * answer (checkedStart), then makes the task's folder next to this computer's clone (<clone>-<KEY>) on that branch, with
- * the safe .env files (copyEnvFiles), or finds the one made before. Prints nothing: `lines` says what it did. Returns {
- * taskKey, title, branch, folder, clone, repository, others, lines }. Its errors say why (`reason`, for run-start).
+ * answer (checkedStart), then makes the task's folder next to this computer's clone (<clone>-<KEY>: findClone's, looking
+ * for it on this computer when nothing says where it is, with Claude Code's state file found from `deps.env`) on that
+ * branch, with the safe .env files (copyEnvFiles), or finds the one made before. It notes the clone (rememberClone),
+ * whether it was told of it, runs in it or found it by itself (a clone found by looking, its origin the task's
+ * repository, is the task's clone as much as one a thread ran in, and run-start marks either trusted). Prints nothing:
+ * `lines` says what it did. Returns { taskKey, title, branch, folder, clone, repository, others, lines }. Its errors
+ * say why (`reason`, for run-start).
  */
 export async function taskFolder(home, key, opts = {}, deps = {}) {
   const p = paths(home);
@@ -2318,15 +2768,16 @@ export async function taskFolder(home, key, opts = {}, deps = {}) {
   if (!res.ok || !res.data) throw startError((res.error && res.error.message) || `AgentMingo didn't answer (HTTP ${res.status}).`, "task_refused");
   const { key: taskKey, title, branch, repository, others } = checkedStart(res.data, key, run);
   const repo = repository.fullName;
-  let clone;
+  let took;
   try {
-    clone = findClone(p, repository, opts.in, cwd, run);
+    took = findClone(p, repository, opts.in, cwd, run, { key: taskKey, env: deps.env });
   } catch (e) {
-    throw startError(e.message, "no_clone", repo);
+    throw startError(e.message, "no_clone", repo, e.sent);
   }
+  const { clone } = took;
   rememberClone(p, clone, run);
   const folder = join(dirname(clone), `${basename(clone)}-${taskKey}`);
-  const lines = [`${taskKey}: ${label(terminalSafe(title), 200)}`];
+  const lines = [`${taskKey}: ${label(terminalSafe(title), 200)}`, ...(took.found ? [took.found] : [])];
   try {
     if (existsSync(folder)) {
       const there = cloneOf(folder, run);
@@ -2357,15 +2808,24 @@ export async function taskFolder(home, key, opts = {}, deps = {}) {
 /** This computer's clones of the task's other repositories (otherClone), as [{ repository, clone }]: the ones it has. */
 function otherClones(p, t, run) {
   const known = readJson(p.repos) || {};
-  return t.others.map((o) => ({ repository: o, clone: otherClone(p, known, t.clone, o, run) })).filter((o) => o.clone);
+  return t.others.map((o) => ({ repository: o, clone: otherClone(known, t.clone, o, run) })).filter((o) => o.clone);
 }
 
 /**
  * The folders Claude may work in besides the task's own: a workflow's plan can take the task into the organization's
- * other repositories (the task's folders are made next to each clone), so the folders those clones are in.
+ * other repositories (the task's folders are made next to each clone), so the folders those clones are in (folderBeside).
  */
 function extraDirs(p, t, run, others = otherClones(p, t, run)) {
-  return others.length ? [...new Set([dirname(t.clone), ...others.map((o) => dirname(o.clone))])] : [];
+  return others.length ? [...new Set([t.clone, ...others.map((o) => o.clone)].map(folderBeside))] : [];
+}
+
+/**
+ * The folder a clone is in, for --add-dir; the clone itself when that folder is the home folder or the disk's root (a
+ * clone `git clone` put in a new terminal's home folder, ~/web): Claude Code is never given either whole (~/.ssh, say).
+ */
+function folderBeside(clone) {
+  const folder = realTarget(dirname(clone));
+  return folder === realTarget(homedir()) || dirname(folder) === folder ? clone : dirname(clone);
 }
 
 /** Runs Claude Code in this terminal until it ends (with `env`, this process's own unless given), and returns its exit code. */
@@ -2432,6 +2892,11 @@ export const START_FROM_WEB_VERSION = 19;
  * Claude Code (trustStartedClones).
  */
 export const START_TRUSTS_CLONES_VERSION = 21;
+/**
+ * The first reporter version that looks for the clone of a task's repository on this computer when nothing says where it
+ * is (findClone's searchClone), for `start`, the start_task tool and run-start alike.
+ */
+export const START_FINDS_CLONES_VERSION = 22;
 /**
  * What trusting that clone lets apply, in these words wherever it's said (AgentMingo's pages keep a copy, which a test
  * of its own keeps the same): the repository's own Claude Code settings.
@@ -2687,8 +3152,10 @@ function openTerminal(args) {
 /**
  * Tells AgentMingo how a start went (`result`: opened, started, or failed with its reason), with a one-line detail
  * (the home folder shown as ~), the repository's name and, from version 21, the names of the repositories whose clones
- * it marked trusted in Claude Code (`trusted`: names only, never a path). A failure to tell it is logged; the start goes
- * on. With `again`, a request that got no answer is sent once more (the same result twice changes nothing there).
+ * it marked trusted in Claude Code (`trusted`: names only, never a path), and from version 22 whether Claude Code may
+ * ask there whether to trust the clone (`asksTrust`: it couldn't mark it, trustStartedClones). A failure to tell it is
+ * logged; the start goes on. With `again`, a request that got no answer is sent once more (the same result twice
+ * changes nothing there).
  */
 async function sendStartResult(p, conn, id, result, post = postJson, timeoutMs = 15_000, again = true) {
   const trusted = Array.isArray(result.trusted) ? result.trusted.filter(repositoryNameOk) : [];
@@ -2699,6 +3166,7 @@ async function sendStartResult(p, conn, id, result, post = postJson, timeoutMs =
     ...(result.detail ? { detail: label(terminalSafe(String(result.detail).split(homedir()).join("~")), 300) } : {}),
     ...(repositoryNameOk(result.repo) ? { repo: result.repo } : {}),
     ...(trusted.length ? { trusted } : {}),
+    ...(result.asksTrust === true ? { asksTrust: true } : {}),
   };
   let res = await post(conn, START_FROM_WEB_PATHS.result, body, timeoutMs);
   if (again && res.status === 0) res = await post(conn, START_FROM_WEB_PATHS.result, body, timeoutMs);
@@ -3220,21 +3688,34 @@ function startedClones(t, run) {
  * Right before run-start starts Claude Code for start `id` (task `t`, in its folder): marks the clone of the task's
  * repository (its main checkout: `clones`, startedClones) as trusted in Claude Code (setTrust, in claudeStateFile(env)
  * as Claude Code finds it from the task's folder), so it doesn't stop on its question whether to trust the folder,
- * which nobody may be at this Mac to answer. Logs each clone it marked, and why it marked none when it couldn't, says
- * so in the window, and keeps the ones it marked, with that file, in state/trusted.json (noteTrusted) for uninstall.
- * Never throws. Returns the names of the repositories it marked, for AgentMingo.
+ * which nobody may be at this Mac to answer: the clone it knew or found alike (taskFolder's). Logs each clone it marked,
+ * and why it marked none when it couldn't, says so in the window, and keeps the ones it marked, with that file, in
+ * state/trusted.json (noteTrusted) for uninstall. Never throws. Returns { trusted (the names of the repositories it
+ * marked, for AgentMingo), asksTrust (the clone isn't trusted there after all that, so Claude Code may ask whether to
+ * trust it: the mark failed, was refused (a state file in the repository's own folder; startedClones took none), and
+ * the clone isn't trusted already (trustedNow)) }.
  */
 function trustStartedClones(p, id, t, clones, env, say) {
-  if (!clones.length) return [];
   const file = claudeStateFile(env, t.folder);
-  // An empty or relative $CLAUDE_CONFIG_DIR puts it in the task's folder: a file of the repository's, never written here.
-  const inRepository = inFolder(file, t.folder) || clones.some((c) => inFolder(file, c.root));
+  // An empty or relative $CLAUDE_CONFIG_DIR puts it in the task's folder: a file of the repository's, never written (nor
+  // read: whatever the repository put there) here.
+  const inRepository = inFolder(file, t.folder) || inFolder(file, t.clone) || clones.some((c) => inFolder(file, c.root));
+  if (!clones.length) {
+    // None it may mark (git doesn't say the task's folder is the task's repository's, or its clone is the home folder or
+    // the disk's root): Claude Code may ask, unless it trusts that clone already.
+    const asksTrust = inRepository || !trustedNow(file, t.clone);
+    if (asksTrust) {
+      log(p, `start-from-web: didn't mark ${tildePath(t.clone)} as trusted in Claude Code for start ${id} (${t.taskKey}): not a clone a start marks (the home folder, the disk's root, or one git didn't confirm)`);
+      say(`AgentMingo: didn't mark ${tildePath(t.clone)} as trusted in Claude Code. If Claude Code asks whether to trust the folder, answer it here.`);
+    }
+    return { trusted: [], asksTrust };
+  }
   const done = inRepository ? { changed: [], problem: "is in the repository's own folder" } : trySetTrust(file, clones.map((c) => c.root), true);
   if (done.problem) {
     const roots = clones.map((c) => tildePath(c.root)).join(", ");
     log(p, `start-from-web: didn't mark ${roots} as trusted in Claude Code for start ${id} (${t.taskKey}): ${tildePath(file)} ${done.problem}`);
     say(`AgentMingo: couldn't mark ${roots} as trusted in Claude Code (${tildePath(file)} ${done.problem}). If Claude Code asks whether to trust the folder, answer it here.`);
-    return [];
+    return { trusted: [], asksTrust: inRepository || clones.some((c) => !trustedNow(file, c.root)) };
   }
   const marked = clones.filter((c) => done.changed.includes(c.root));
   for (const c of marked) log(p, `start-from-web: marked ${tildePath(c.root)} as trusted in Claude Code for start ${id} (${t.taskKey})`);
@@ -3244,7 +3725,16 @@ function trustStartedClones(p, id, t, clones, env, say) {
       `AgentMingo: marked ${marked.map((c) => tildePath(c.root)).join(", ")} as trusted in Claude Code (in ${tildePath(file)}), so it starts without asking whether to trust the folder. That clone stays trusted for every Claude Code session in it and its worktrees, on any branch, until you set its entry's hasTrustDialogAccepted back to false, remove the entry, or uninstall (a later start from AgentMingo marks it again).`,
     );
   }
-  return marked.map((c) => c.repo);
+  return { trusted: marked.map((c) => c.repo), asksTrust: false };
+}
+
+/**
+ * Whether Claude Code's state file `file` trusts `root` now, as it reads without Claude Code's lock (readClaudeState, as
+ * marksStillTrusted reads it): false when it can't be read, so a file caught half written counts as not trusting it.
+ */
+function trustedNow(file, root) {
+  const read = readClaudeState(file);
+  return !read.problem && trustedIn(read.projects, root);
 }
 
 /** The names Claude Code gives its state file (claudeStateFile's): a recorded file by any other name isn't followed. */
@@ -3417,7 +3907,9 @@ function trustStaysLine(m) {
  * safe .env files) and runs Claude Code there, working on the task: `claude "Work on WEB-12"`, as you'd start it
  * yourself, so Claude Code's own permission settings apply (no permission flag, no settings or MCP config of
  * AgentMingo's). Right before that, from version 21, it marks the clone of the task's repository (its main checkout)
- * as trusted in Claude Code (trustStartedClones; not with --no-launch, which starts nothing). AGENTMINGO_START tells
+ * as trusted in Claude Code (trustStartedClones; not with --no-launch, which starts nothing), the one it knew or, from
+ * version 22, the one findClone found by itself alike, and tells AgentMingo when it couldn't, so Claude Code may ask
+ * (asksTrust). AGENTMINGO_START tells
  * the thread's first report which start it was, and AGENTMINGO_START_TRUSTED what that start marked trusted.
  * AgentMingo hears how it went. Returns Claude Code's exit code. Never inside Claude Code's Bash tool, and only in a
  * terminal (but with --no-launch).
@@ -3472,11 +3964,12 @@ async function runTakenStart(p, id, info, flags, deps, say) {
   const run = deps.git || git;
   let t;
   try {
-    t = await taskFolder(p.home, task, { connection: conn }, { gitVisible: deps.gitVisible || gitShownQuiet, cwd: deps.cwd || homedir(), post, git: run });
+    t = await taskFolder(p.home, task, { connection: conn }, { gitVisible: deps.gitVisible || gitShownQuiet, cwd: deps.cwd || homedir(), post, git: run, env: deps.env });
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
     const reason = e && REPORTER_START_FAILURES.includes(e.reason) ? e.reason : e && (e.code === "EPERM" || e.code === "EACCES") ? "folder_blocked" : "error";
-    await tell({ outcome: "failed", reason, detail: message, repo: e && e.repo });
+    // No clone found: AgentMingo hears where it looked, never what the search found (this window says that).
+    await tell({ outcome: "failed", reason, detail: e && typeof e.sent === "string" ? e.sent : message, repo: e && e.repo });
     say(`AgentMingo: couldn't start ${task}: ${terminalSafe(message)}`);
     return 1;
   }
@@ -3491,10 +3984,11 @@ async function runTakenStart(p, id, info, flags, deps, say) {
   const others = otherClones(p, t, run);
   const dirs = extraDirs(p, t, run, others);
   // Only when Claude Code starts now, after every check passed: nobody may be at this Mac to answer its trust question.
-  const trusted = flags.noLaunch ? [] : trustStartedClones(p, id, t, startedClones(t, run), deps.env, say);
+  // The clone it knew or found alike; Claude Code may still ask when it couldn't mark it (asksTrust).
+  const { trusted, asksTrust } = flags.noLaunch ? { trusted: [], asksTrust: false } : trustStartedClones(p, id, t, startedClones(t, run), deps.env, say);
   // Marks of earlier starts set back since are forgotten, so uninstall won't undo a trust given again by hand later.
   if (!flags.noLaunch) marksStillTrusted(p, deps.env);
-  await tell({ outcome: "started", repo: t.repository.fullName, trusted });
+  await tell({ outcome: "started", repo: t.repository.fullName, trusted, asksTrust });
   if (flags.noLaunch) {
     say(`Folder: ${t.folder}`);
     return 0;
@@ -3527,9 +4021,9 @@ function startFromWebSaid() {
   return [
     `- A helper on this Mac (a LaunchAgent: ~/Library/LaunchAgents/${START_FROM_WEB_LABEL}.plist) asks AgentMingo about every ${START_POLL_DEFAULT_MS / 1000} seconds, while you're logged in and the Mac is awake, whether you pressed Start on my computer on a task.`,
     `- When you did, it opens Terminal with one fixed command built on this Mac: Claude Code in the task's folder (made as start makes it, with the same .env files), working on “Work on <task key>”. AgentMingo sends only the task's key, never a command or a path. Claude Code's own permission settings apply, as when you start it yourself. At most ${START_OPENS_PER_HOUR} starts an hour.`,
-    `- Right before it starts Claude Code, it marks your main clone of the task's repository (say ~/code/web, not the task's folder ~/code/web-WEB-12) as trusted in Claude Code (projects["<clone>"].hasTrustDialogAccepted in ${tildePath(claudeStateFile())}, nothing else), so Claude Code doesn't stop to ask whether to trust the folder. That clone then stays trusted for every Claude Code session in it and its worktrees, on any branch, until you set the entry back to false, remove it, or uninstall (a later start marks it again; turning starting threads off doesn't undo it). Trusting it lets that repository's own Claude Code settings apply there: ${START_TRUST_LETS_APPLY}.`,
+    `- Right before it starts Claude Code, it marks your main clone of the task's repository (say ~/code/web, not the task's folder ~/code/web-WEB-12) as trusted in Claude Code (projects["<clone>"].hasTrustDialogAccepted in ${tildePath(claudeStateFile())}, nothing else), so Claude Code doesn't stop to ask whether to trust the folder: the clone it already knew (a thread ran in it, or you ran start or the setup command inside it) or the one it found by looking (in the folders Claude Code has opened, or by the repository's name in ~/code and the like), either way only once git says its origin is the task's repository. That clone then stays trusted for every Claude Code session in it and its worktrees, on any branch, until you set the entry back to false, remove it, or uninstall (a later start marks it again; turning starting threads off doesn't undo it). Trusting it lets that repository's own Claude Code settings apply there: ${START_TRUST_LETS_APPLY}.`,
     "- Only you can start threads here, signed in as yourself (not teammates or admins). Someone who gets into your AgentMingo account could start a thread on a task here, and answer its prompts if answering them from AgentMingo is on.",
-    "- Sent: that it's on, whether answering prompts from AgentMingo is on here, and how each start went (opened, started, or why not, in one line with your home folder shown as ~, the repository's name, and which repositories' clones it marked trusted, said again in the thread's first report with the start it came from). Never this Mac's name.",
+    "- Sent: that it's on, whether answering prompts from AgentMingo is on here, and how each start went (opened, started, or why not, in one line with your home folder shown as ~, the repository's name, and which repositories' clones it marked trusted, said again in the thread's first report with the start it came from, or that it couldn't mark the clone, so Claude Code may ask). Never this Mac's name.",
     `- To turn it off: node ${SCRIPT} start-from-web off, or on your Account page in AgentMingo.`,
   ];
 }
@@ -7689,6 +8183,8 @@ async function install(args) {
   saveConnections(p, config, list);
   chmodSync(p.config, 0o600);
   if (existsSync(`${p.config}.removed`)) unlinkSync(`${p.config}.removed`);
+  // Run inside a clone (or pasted into a thread there), that clone is noted: a start from AgentMingo finds it at once.
+  rememberSetupFolder(p);
   // Its lists were just heard, and a wait from before (a 403 while the person was a viewer, say) is over.
   if (mine.known) writeJson(p.scopes, { ...scopesHeard(p), [connectionKey(mine)]: Date.now() });
   clearBackoff(p, connectionKey(mine));
