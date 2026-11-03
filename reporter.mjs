@@ -78,7 +78,13 @@
  * permission for any tool: a file edit, a command, an MCP or other tool; a question; a plan to approve), Claude Code's
  * prompt stays on screen as always, and the hook also opens the prompt on the thread's page in AgentMingo and waits up
  * to the time you chose (an hour unless you say otherwise) for your answer there, with the same answers as the
- * terminal; whichever is answered first counts.
+ * terminal; whichever is answered first counts. It opens it there within 15 seconds, asking again a second apart (or as
+ * long as a 429 asks) while the thread's first report is on its way, or AgentMingo doesn't answer in time or is busy;
+ * that never pauses this computer's reports or lookups, and a lookup that got no answer for another thread doesn't stop
+ * it (only AgentMingo refusing this computer, a 403, does, for its wait). When it can't open it, AgentMingo refused it
+ * or answered its check with an error, or an answer from there couldn't be applied, the prompt stays in the terminal
+ * only, and reporter.log says why in one line, with the tool's name and the thread's first 8 characters (never what the
+ * tool would do).
  * For that prompt it sends the tool's name, a random id, an HMAC that ties an answer to this prompt (made with a key
  * that never leaves this computer), a hash of what it shows, how long it will wait, and what it wants, masked like a
  * title: for a file change, the file's path (from the repository's top, or as given outside it, from ~ in your home
@@ -138,9 +144,10 @@
  * On a workflow (below), it also sends whether a step Claude reports is done or failed, and what Claude writes when it reports a step (for the plan step, the plan
  * itself, with the repositories it names and whether it needs an end-to-end test, and why; AgentMingo masks the same
  * details when it arrives), the files Claude attaches to a step (reports, screenshots, videos, logs; up to 4 MB each,
- * 20 at most), each with its name or its path in the session's folder, and when Claude asks for its current step, the
- * folder's repository and branch. The commands send what they name: `start` and the start_task tool the task's key
- * (and the repository, with --repo), `repos add` and `repos remove` a repository's name, and `repos` asks for the list.
+ * 20 at most), each with its name or its path in the session's folder, and when Claude asks for its current step (or
+ * calls start_task in the task's own folder), the folder's repository and branch. The commands send what they name:
+ * `start` and the start_task tool the task's key (and the repository, with --repo), `repos add` and `repos remove` a
+ * repository's name, and `repos` asks for the list.
  * On a computer connected
  * to several organizations, a step report and `start` go first to the organization of the folder's repository, and to
  * the next only if that one doesn't know the step or the task. Install sends the setup command's one-time code, the
@@ -222,7 +229,9 @@
  * in it (in ~/.agentmingo/repos.json). Run inside a thread (from Claude's own Bash tool), it starts no second Claude:
  * it prints the folder and how to move the thread there. The start_task MCP tool does the same for a thread that's
  * asked to work on a task: Claude asks you before it switches the thread into the task's folder (Claude Code's
- * EnterWorktree), or gives you a link that opens a new Claude Code session there.
+ * EnterWorktree), or gives you a link that opens a new Claude Code session there. Called in a thread already in that
+ * folder (one `start` or run-start began there with "Work on <task key>"), it also brings the workflow step the task's
+ * run has for the thread now, as current_step does, and marks it given here, so the next message doesn't bring it again.
  *
  * Starting threads from AgentMingo (from version 19; macOS only for now; off unless you turn it on here): with it on,
  * "Start on my computer" on a task's page in AgentMingo, from any device you're signed in on, starts a thread on this
@@ -235,7 +244,11 @@
  * `start` does (the same safe .env files), and runs Claude Code there with the prompt "Work on <task key>", as you'd
  * start it yourself: Claude Code's own permission settings apply (no permission flag, and no settings or MCP config of
  * AgentMingo's). AgentMingo hears how it went (opened, started, or why it didn't, in one line with your home folder
- * shown as ~, and the repository's name), and the thread's first report says which start it came from. It opens at
+ * shown as ~, and the repository's name), and the thread's first report says which start it came from. Its prompt
+ * reaches the hooks as the thread's first message a second after it starts, before that report has gone: that hook
+ * waits for the report to be sent (up to 4 seconds, looking at the outbox, asking nothing meanwhile), so the run the
+ * start began hands its first workflow step with that message; start_task in the task's folder (above) brings it too.
+ * It opens at
  * most 6 starts an hour, none within 15 seconds of the last, whatever AgentMingo sends. Only you can press it, signed
  * in as yourself (not teammates or admins): someone who gets into your AgentMingo account could start a thread on a
  * task here, and answer its prompts if answering them from AgentMingo is on. Turn it on with the setup command's box
@@ -261,12 +274,21 @@
  * (with a question's answers, or Claude Code's "don't ask again" suggestions for the session, when you chose those)
  * and your reply to a thread from there, and sending happens in a separate background process. Events wait in
  * ~/.agentmingo/outbox until they're delivered. When AgentMingo doesn't answer, a hook waits a second for it
- * at most (and hooks look nothing up there for the next minute), and the reporter stops asking and sending for a
- * while (30 seconds, doubling up to 10 minutes, or
- * as long as a 429 asks), then sends what waited. When AgentMingo says a limit on reports was reached, the events
+ * at most (and hooks look nothing up there for the next minute; a prompt waiting for your answer from AgentMingo still
+ * opens there), and the reporter stops asking and sending for a while (30 seconds, doubling up to 10 minutes, or
+ * as long as a 429 asks), then sends what waited: the background sender that hit it sends again as each wait ends, for
+ * 15 minutes and 10 tries at most, then exits and leaves what still waits to the next hook's sender. A reminder (for a
+ * prompt still waiting a minute on) ends within seconds of the prompt being answered. Whatever happens (a request that
+ * never ends, a computer asleep through their waits), a background sender exits after 20 minutes and a reminder after
+ * 4, by the clock. When AgentMingo says a limit on reports was reached, the events
  * it skipped are dropped and nothing more is sent until the limit's window ends. When it refuses the connection
  * (403: the account or organization is suspended, or you were made a viewer), nothing is asked or sent there for an
- * hour, doubling to a day, or until install runs again.
+ * hour, doubling to a day, or until install runs again. When it says the connection was removed (401: you pressed
+ * Disconnect, or ran a new setup command for the same organization, which replaces it), that connection's token is
+ * never used again, and its threads report nothing until its setup command runs again. From version 20, a thread
+ * listening for you (the watcher below) or a prompt waiting for your answer from AgentMingo doesn't stop for that: it
+ * goes on through the new connection as soon as this computer has one (at once after a new setup command), asking
+ * nothing meanwhile, until its time is up, or until uninstall runs here (then it stops at its next look).
  *
  * Install keeps the choices made before (titles, sharing, reviews, updating, answering prompts from AgentMingo, starting
  * threads from AgentMingo, where the hooks are), also after the computer was disconnected, unless a flag changes them (--approvals turns answering
@@ -353,7 +375,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "19";
+export const VERSION = "20";
 const SCRIPT = fileURLToPath(import.meta.url);
 /**
  * What every request says it is: the script's name and version and, from version 19, this computer's platform (darwin,
@@ -712,10 +734,14 @@ function threadRepo(p, sid, cwd) {
   return state.repoCwd === folder && state.repo ? state.repo : remoteRepo(folder);
 }
 
-/** Where a session reports now ({ conn, scope }), from the connection it started with and its folder's repository. */
+/**
+ * Where a session reports now ({ conn, scope }), from the connection it started with and its folder's repository
+ * (`repo`, which it says too).
+ */
 function sessionRoute(p, config, sid, cwd) {
   const state = sid ? readJson(join(p.state, `${sid}.hook.json`)) || {} : {};
-  return routeFor(config, threadRepo(p, sid, cwd), state.conn || null);
+  const repo = threadRepo(p, sid, cwd);
+  return { ...routeFor(config, repo, state.conn || null), repo };
 }
 
 /** When each organization's list of repositories was last heard (state/scopes.json, so config.json isn't rewritten each time). */
@@ -1791,11 +1817,50 @@ function mayFollow(p, sid, cwd, branchOfFolder) {
 }
 
 /**
+ * How long a thread's first message waits for its start to reach AgentMingo, when it came on the command line with the
+ * start (run-start's `claude "Work on WEB-12"`): within the hook's 10 seconds, with the lookup's second after it.
+ */
+export const OPENING_WAIT_MS = 4_000;
+/** How often that wait looks at the outbox (on this computer only, no request). */
+const OPENING_LOOK_MS = 100;
+
+/** The outbox files that hold a session's start event, not sent yet. */
+function queuedStart(p, sid) {
+  return outboxFiles(p).filter((f) => {
+    const e = readJson(join(p.outbox, f));
+    return Boolean(e && e.session === sid && e.kind === "start");
+  });
+}
+
+/**
+ * A thread's first message that came on the command line with its start (run-start's "Work on WEB-12") reaches its
+ * hook about a second after the start, before the sender has sent the start's report: AgentMingo doesn't know the thread
+ * yet, so it can't say the run its start began, and the run's first step would come only with a later message. This
+ * waits, looking at the outbox every OPENING_LOOK_MS, until the start's event is sent (the sender takes it out once
+ * AgentMingo took it), OPENING_WAIT_MS at most, only for the first message, with the start still queued. Says whether
+ * it went.
+ */
+async function startSent(p, sid, deps) {
+  const files = queuedStart(p, sid);
+  if (!files.length) return true;
+  const wait = deps.sleep || sleep;
+  const now = deps.now || Date.now;
+  const until = now() + OPENING_WAIT_MS;
+  while (files.some((f) => existsSync(join(p.outbox, f)))) {
+    if (now() >= until) return false;
+    await wait(OPENING_LOOK_MS);
+  }
+  return true;
+}
+
+/**
  * Before a message reaches Claude in a session that follows a workflow, asks for its step now (waiting a
  * second at most, and not asking while AgentMingo isn't answering): a step that became ready since the last
  * report (a person approved the plan) goes with this message instead of the next one. A session on a task (or on a
  * branch that names one) is asked about too, so a workflow a person started for it on its page since its last report
- * hands its first step with this message. Only for a thread that reports. Never throws.
+ * hands its first step with this message. Its first message, when its start's event is still queued (the message came
+ * on the command line with the start, as run-start starts Claude Code), first waits for that event to be sent
+ * (startSent), so the run its start began hands its first step with it. Only for a thread that reports. Never throws.
  */
 export async function prepareStep(home, raw, deps = {}) {
   if (fromCursor(raw)) return;
@@ -1806,11 +1871,24 @@ export async function prepareStep(home, raw, deps = {}) {
     const sid = safeId(input.session_id);
     if (!config || !sid || !CONTEXT_EVENTS.has(input.hook_event_name)) return;
     const known = readJson(stepFile(p, sid));
-    if (!(known && known.following) && !mayFollow(p, sid, input.cwd, deps.branchOf || branchOf)) return;
+    const following = Boolean(known && known.following);
+    if (!following && !mayFollow(p, sid, input.cwd, deps.branchOf || branchOf)) return;
     const route = sessionRoute(p, config, sid, typeof input.cwd === "string" ? input.cwd : null);
-    if (route.scope !== "in" || backingOff(p, connectionKey(route.conn), Date.now(), true)) return;
+    if (route.scope !== "in") return;
     const conn = route.conn;
-    const now = await (deps.ask || askStep)(conn, { session: sid }, lookupHeard(p, connectionKey(conn)));
+    const key = connectionKey(conn);
+    // The thread's first message (no message counted in its state yet; a resumed thread has its earlier ones), not known
+    // to follow a workflow but on a task, with its start still queued: it waits for the start to be sent. Not while the
+    // sender waits out an outage (the start isn't going anywhere), nor in a check of a release. A pause of lookups doesn't
+    // stop it (it reads only the outbox): a slow answer at the thread's own start is what sets one.
+    const state = readJson(join(p.state, `${sid}.hook.json`)) || {};
+    const env = deps.env || process.env;
+    const opening = input.hook_event_name === "UserPromptSubmit" && !state.prompts && !following && !env.AGENTMINGO_CHECK && !backingOff(p, key, Date.now()) && queuedStart(p, sid).length > 0;
+    const sent = opening ? await startSent(p, sid, deps) : false;
+    // Lookups paused (one got no answer within its second, this last minute): asked anyway only right after the start
+    // went through, which says AgentMingo is answering now.
+    if (!sent && backingOff(p, key, Date.now(), true)) return;
+    const now = await (deps.ask || askStep)(conn, { session: sid }, lookupHeard(p, key));
     if (!now) return;
     if (now.following) saveStep(p, sid, now, Date.now());
     else rmSync(stepFile(p, sid), { force: true });
@@ -3125,7 +3203,7 @@ export const MCP_TOOLS = [
   {
     name: "start_task",
     description:
-      "Starts work on an AgentMingo task by its key (like WEB-12). Call it whenever the user asks to start, work on, pick up or do a task by its key (\"Work on WEB-12\", \"start the task WEB-12\"). It makes the task's own folder (a git worktree next to this clone, on the task's branch, with the clone's local .env files), or finds the one made before, and returns that folder and what to do next. It doesn't move this thread: ASK the user whether to switch this thread into that folder, and only after they say yes call EnterWorktree with the folder as its path. If they say no, give them the link or command it returns for a new thread there.",
+      "Starts work on an AgentMingo task by its key (like WEB-12). Call it whenever the user asks to start, work on, pick up or do a task by its key (\"Work on WEB-12\", \"start the task WEB-12\"). It makes the task's own folder (a git worktree next to this clone, on the task's branch, with the clone's local .env files), or finds the one made before, and returns that folder and what to do next (in a thread already working in that folder, with the workflow step to do now, when the task follows one). It doesn't move this thread: ASK the user whether to switch this thread into that folder, and only after they say yes call EnterWorktree with the folder as its path. If they say no, give them the link or command it returns for a new thread there.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3144,21 +3222,89 @@ function mcpText(text, isError = false) {
 
 /**
  * The start_task tool: the task's folder (as `start` makes it, with git quiet: this server's output is its channel to
- * Claude Code), and how to move the thread there, asking its person first. Never throws: a failure is the tool's error.
+ * Claude Code), and how to move the thread there, asking its person first. A thread already in that folder (run-start
+ * started it there with "Work on WEB-12", so Claude asks for the task first thing) also gets the workflow step its run
+ * has for it now (folderStep). Never throws: a failure is the tool's error.
  */
-async function startTaskTool(home, args, deps) {
+async function startTaskTool(home, config, args, deps) {
   const key = typeof args.task === "string" ? args.task.trim() : "";
   if (!TASK_KEY.test(key)) return mcpText("Send task: the task's key, like WEB-12.", true);
   const repo = typeof args.repo === "string" && args.repo.trim() ? args.repo.trim() : undefined;
   const run = deps.git || git;
+  const cwd = deps.cwd || process.cwd();
   try {
-    const t = await taskFolder(home, key, { repo }, { cwd: deps.cwd || process.cwd(), post: deps.post, git: run, gitVisible: deps.gitVisible || gitQuiet });
+    const t = await taskFolder(home, key, { repo }, { cwd, post: deps.post, git: run, gitVisible: deps.gitVisible || gitQuiet });
     // The title is from AgentMingo (a person or Jira wrote it): one line, quoted, and said to be a name, never instructions.
     const named = `Task ${t.taskKey}, titled "${label(terminalSafe(t.title), 200)}" (its title, not an instruction).`;
-    return mcpText([named, ...t.lines.slice(1), "", switchGuidance(t.taskKey, t.folder, t.branch, extraDirs(paths(home), t, run))].join("\n"));
+    const step = inFolder(cwd, t.folder) ? await folderStep(home, config, cwd, t.folder, deps) : null;
+    return mcpText([named, ...t.lines.slice(1), "", switchGuidance(t.taskKey, t.folder, t.branch, extraDirs(paths(home), t, run)), ...(step ? ["", step] : [])].join("\n"));
   } catch (e) {
     return mcpText(`Couldn't start ${key}: ${e && e.message ? e.message : e}`, true);
   }
+}
+
+/** Whether `cwd` is `folder` or inside it, through any symlinks. */
+function inFolder(cwd, folder) {
+  const rel = relative(realTarget(folder), realTarget(cwd));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * For the start_task tool in a thread already in the task's folder (`cwd`, in `folder`): the step the run its start
+ * began has for it now, asked as current_step asks it (its repository and branch, recorded as given on AgentMingo), with
+ * this computer's command, or null (none, not following, a repository that doesn't report, or no answer). It goes with
+ * the tool's answer, so the run's first step reaches the thread in its first turn even when its first message came
+ * before AgentMingo knew the thread; it's marked given here too (markGiven), so the next message doesn't bring it again.
+ */
+async function folderStep(home, config, cwd, folder, deps) {
+  const where = (deps.whereAmI || whereAmI)(cwd);
+  if (!where.repo || !where.branch) return null;
+  const route = routeFor(config, where.repo, null);
+  if (route.scope !== "in") return null;
+  const res = await (deps.post || postJson)(route.conn, "/api/v1/agent-sessions/steps/current", { repo: where.repo, branch: where.branch, deliver: true }, 10_000);
+  const d = res.ok && res.data ? res.data : null;
+  const step = d && d.following && d.step && typeof d.step.id === "string" && typeof d.step.note === "string" ? d.step : null;
+  if (!step) return null;
+  // Handed already by a hook (its first message's, once its start was sent): not again in the same turn.
+  if (!markGiven(paths(home), step, folder, Date.now())) return null;
+  return withCommand(step.note, home);
+}
+
+/**
+ * A step handed to a thread in `folder` outside its hooks (the start_task tool): marked given in the file of each session
+ * that has it as its step now (from a report's answer or a lookup), unless it is already; when none has it yet, in the
+ * file of the latest session in that folder that hasn't ended (whose step this is: AgentMingo looked the thread up by its
+ * folder's repository and branch), so its next message doesn't bring it again. False when a session's file had it given
+ * already (a hook handed it): then the tool doesn't hand it again.
+ */
+function markGiven(p, step, folder, now) {
+  let names = [];
+  try {
+    names = readdirSync(p.state);
+  } catch {
+    return true;
+  }
+  let found = false;
+  let given = false;
+  for (const name of names.filter((n) => n.endsWith(".step.json"))) {
+    const s = readJson(join(p.state, name));
+    if (!s || s.id !== step.id) continue;
+    found = true;
+    if (s.given === step.id) given = true;
+    else writeJson(join(p.state, name), { ...s, given: step.id });
+  }
+  if (found) return !given;
+  let latest = null;
+  for (const name of names.filter((n) => n.endsWith(".hook.json"))) {
+    const sid = safeId(name.slice(0, -".hook.json".length));
+    const state = sid ? readJson(join(p.state, name)) : null;
+    if (!state || state.ends || typeof state.cwd !== "string" || !inFolder(state.cwd, folder)) continue;
+    if (!latest || (state.lastSentAt || 0) > latest.at) latest = { sid, at: state.lastSentAt || 0 };
+  }
+  if (!latest) return true;
+  const before = readJson(stepFile(p, latest.sid)) || {};
+  writeJson(stepFile(p, latest.sid), { ...before, following: true, id: step.id, note: step.note, waiting: null, given: step.id, at: now });
+  return true;
 }
 
 /** The repository ("owner/name") and branch of the folder Claude Code started the MCP server in. */
@@ -3219,7 +3365,7 @@ export async function handleMcpMessage(home, config, msg, deps = {}) {
         recordReported(paths(home), args.step, res.data.next);
         return reply(mcpText(`${attachedNote ? `${attachedNote}\n` : ""}${withCommand(res.data.message, home)}`));
       }
-      if (name === "start_task") return reply(await startTaskTool(home, args, deps));
+      if (name === "start_task") return reply(await startTaskTool(home, config, args, deps));
       return { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: `Unknown tool: ${name}` } };
     }
     default:
@@ -3508,18 +3654,32 @@ function startReminder(home, sid, at) {
   }
 }
 
+/** How often a reminder looks (on this computer only) whether its session still waits: once it doesn't, it exits. */
+export const REMIND_CHECK_MS = 5_000;
+
+/** Whether a session's state (its hook file) still waits on the wait a reminder was started for (`at`). */
+function stillWaiting(state, at) {
+  return Boolean(state && state.lastKind === "needs_you" && state.lastSentAt === at);
+}
+
 /**
  * A minute after a session started waiting on its person: if it still is (nothing happened since), says
- * so again, and AgentMingo tells them in the browser or chat. Returns the event it sent, or null.
+ * so again, and AgentMingo tells them in the browser or chat. Returns the event it sent, or null. It waits a minute
+ * from when it starts at most, whatever `at` says, and looks every REMIND_CHECK_MS whether the session still waits:
+ * answered, moved on or ended meanwhile, it's no longer needed and ends at once.
  */
 export async function runRemind(home, sid, at, deps = {}) {
   const wait = deps.sleep || sleep;
   const now = deps.now || Date.now;
-  await wait(Math.max(0, at + REMIND_AFTER_MS - now()));
   const p = paths(home);
   const hookFile = join(p.state, `${safeId(sid)}.hook.json`);
+  const due = Math.min(at + REMIND_AFTER_MS, now() + REMIND_AFTER_MS);
+  while (now() < due) {
+    if (!stillWaiting(readJson(hookFile), at)) return null;
+    await wait(Math.min(REMIND_CHECK_MS, due - now()));
+  }
   const state = readJson(hookFile);
-  if (!state || state.lastKind !== "needs_you" || state.lastSentAt !== at) return null;
+  if (!stillWaiting(state, at)) return null;
   const sentAt = now();
   const event = { id: randomUUID(), session: sid, kind: "needs_you", at: new Date(sentAt).toISOString() };
   if (state.lastDetail) event.detail = state.lastDetail;
@@ -3602,7 +3762,10 @@ async function takeReply(w, reply, data) {
   const claim = join(dir, `reply-${toldName(reply.id)}`);
   // Handed over already, or being handed over by another watcher.
   if (!claimOne(claim, Date.now())) return null;
-  const taken = await w.ask(w.conn, w.sid, undefined, undefined, { deliverReply: reply.id });
+  let taken = await watchAsk(w, undefined, undefined, { deliverReply: reply.id });
+  // Disconnected just now, and the thread has its new connection already (disconnected): the same reply is taken through
+  // it at once, not a pace later (or never, on a watch's last ask).
+  if (taken.status === 401 && w.conn) taken = await watchAsk(w, undefined, undefined, { deliverReply: reply.id });
   if (!taken.ok || !taken.data || taken.data.replyTaken !== true) {
     // Not answered: it's still waiting there, so the next ask may take it. Taken already (or gone): never handed over.
     if (!taken.ok) rmSync(claim, { force: true });
@@ -3611,7 +3774,7 @@ async function takeReply(w, reply, data) {
   const parts = [replyNote(reply.from, reply.text)];
   const step = data.following && data.step && typeof data.step.id === "string" && typeof data.step.note === "string" ? data.step : null;
   if (step && !step.delivered && (readJson(stepFile(w.p, w.sid)) || {}).given !== step.id) {
-    const told = await w.ask(w.conn, w.sid, undefined, step.id);
+    const told = await watchAsk(w, undefined, step.id);
     if (told.ok) {
       saveStep(w.p, w.sid, data, w.now());
       writeJson(stepFile(w.p, w.sid), { ...readJson(stepFile(w.p, w.sid)), given: step.id });
@@ -3621,7 +3784,7 @@ async function takeReply(w, reply, data) {
   if (w.config.reviews && Array.isArray(data.pending) && data.pending.length && typeof data.note === "string" && data.note) {
     const ids = data.pending.map((i) => i.id);
     if (claimTold(w.p, w.sid, ids)) {
-      const told = await w.ask(w.conn, w.sid, ids);
+      const told = await watchAsk(w, ids);
       if (told.ok) {
         rmSync(feedbackFile(w.p, w.sid), { force: true });
         parts.push(data.note);
@@ -3750,6 +3913,62 @@ async function pauseWatch(w, ms, until = Infinity) {
 }
 
 /**
+ * The connection a thread's long wait (`w`: its watcher, or a hook waiting on a prompt) goes on through once AgentMingo
+ * answered it 401 (its connection was removed there: Disconnect pressed, or a new setup command replaced it): the
+ * config's connection to the same organization now (`w.key`), when the thread's repository (`w.repo`, as the wait began)
+ * still reports there and its token isn't one AgentMingo refused (`w.refused`). Null while there's none: disconnected,
+ * and not set up again yet. A connection from before they were named ("default") comes back from its setup command
+ * under its organization's name, which isn't the same: such a wait asks nothing until its time is up.
+ */
+function replacementOf(w) {
+  const conn = connectionByKey(readJson(w.p.config), w.key);
+  return conn && scopeOf(conn, w.repo) === "in" && !w.refused.has(conn.token) ? conn : null;
+}
+
+/**
+ * A long wait (`w`) with no connection takes its thread's new one (replacementOf), and says so in the log, with what it
+ * does through it (`doing`: it goes on, `w.goesOn`, unless a prompt's hook only closes its request). Whether there was one.
+ */
+function reconnected(w, doing = w.goesOn) {
+  const conn = replacementOf(w);
+  if (!conn) return false;
+  w.conn = conn;
+  log(w.p, `the connection to ${w.key} was replaced; ${doing} through the new one`);
+  return true;
+}
+
+/**
+ * Whether uninstall ran on this computer (`p`): no config, not even the one a 401 for its only connection put aside
+ * (forgetConnection). Uninstall disconnects every connection and forgets them: a wait with no connection then ends.
+ */
+function uninstalled(p) {
+  return !existsSync(p.config) && !existsSync(`${p.config}.removed`);
+}
+
+/**
+ * AgentMingo answered a long wait (`w`) 401: its connection was removed there. Its token is never used again: the wait
+ * goes on through the thread's new connection when the config has one already (a new setup command writes it before it
+ * disconnects the old one), or else asks nothing (`w.conn` null) until one appears (reconnected) or its time is up.
+ */
+function disconnected(w) {
+  w.refused.add(w.conn.token);
+  w.conn = null;
+  if (!reconnected(w)) log(w.p, `the connection to ${w.key} was removed in AgentMingo; ${w.goesOn} if you run its setup command again before its wait is over`);
+}
+
+/**
+ * Asks AgentMingo for the watcher (`w`, about its session) through its connection as it is now, with askFeedback's
+ * `deliver`, `deliverStep` and `more`. A 401 disconnects it (disconnected); while it has no connection, nothing is sent,
+ * and the answer is a 401 again.
+ */
+async function watchAsk(w, deliver, deliverStep, more) {
+  if (!w.conn) return { ok: false, status: 401, data: null };
+  const res = await w.ask(w.conn, w.sid, deliver, deliverStep, more);
+  if (res.status === 401) disconnected(w);
+  return res;
+}
+
+/**
  * After a reply, waits for review results (or the next checklist step) on the session's pull request, or, in a session
  * that follows a workflow, for its next step (a person approving the plan), or, with replies on here, for a reply its
  * person sends from the thread's page, and returns the note to wake Claude with, or null: nothing to wait for, the person
@@ -3760,6 +3979,10 @@ async function pauseWatch(w, ms, until = Infinity) {
  * isn't missed; a computer that slept through that time asks it as it wakes (pauseWatch). A long watch with replies on
  * that listened its whole time, whose latest answer says to keep listening (reporter 18), returns KEEP_LISTENING_NOTE
  * instead of null: the thread takes one short turn, and its Stop starts a fresh watcher (rearmToKeepListening says when).
+ * A 403 ends it at once. A 401 doesn't (reporter 20): the connection was removed in AgentMingo (Disconnect pressed, or a
+ * new setup command replaced it), so it goes on through the thread's new connection to the same organization, at once
+ * when the config has one, or else asks nothing and looks for one at its pace, until its time is up (disconnected), or
+ * until it finds uninstall ran here (uninstalled).
  */
 export async function runWatch(home, raw, deps = {}) {
   // Cursor's own agent would be held up to 20 minutes, or made to follow up again and again: never waited for.
@@ -3792,8 +4015,7 @@ export async function runWatch(home, raw, deps = {}) {
   // Only a thread that reports waits for anything, and not while its connection is refused (a 403: hours, not minutes).
   const route = sessionRoute(p, config, sid, typeof input.cwd === "string" ? input.cwd : null);
   if (route.scope !== "in") return null;
-  const conn = route.conn;
-  const key = connectionKey(conn);
+  const key = connectionKey(route.conn);
   if (forbiddenNow(p, key, now())) return null;
   // The newest reply's watcher takes the thread over: one still waiting from an earlier reply sees the lock name
   // another and stops (watchOver), so the thread's latest turn always gets a whole wait of its own.
@@ -3803,8 +4025,10 @@ export async function runWatch(home, raw, deps = {}) {
   writeJson(lock, { pid: process.pid, id: lockId, started });
   const w = {
     p,
-    conn,
+    // Null after a 401 until the thread has a new connection (disconnected).
+    conn: route.conn,
     sid,
+    repo: route.repo,
     key,
     ask,
     home,
@@ -3817,6 +4041,9 @@ export async function runWatch(home, raw, deps = {}) {
     checkMs: deps.checkMs ?? WATCH_CHECK_MS,
     // What the thread's state counted when the wait began: its person typing, or its end, goes past these.
     base: { prompts: startHook.prompts || 0, ends: startHook.ends || 0 },
+    // Tokens AgentMingo answered 401: never used again.
+    refused: new Set(),
+    goesOn: "this thread keeps listening",
   };
   try {
     // Give the reply's report a moment to arrive, so AgentMingo knows the branch.
@@ -3831,6 +4058,14 @@ export async function runWatch(home, raw, deps = {}) {
       const last = elapsed >= limitFor(long);
       // Until it asks again: its pace, but never past when it stops listening; on its last ask, it stops now (0).
       const pause = last ? 0 : Math.max(0, Math.min(every(elapsed), limitFor(long) - elapsed));
+      // Disconnected, and the thread has no new connection yet: nothing is asked; it looks again at its pace, and once its
+      // time is up it ends as a watch that heard nothing (not kept listening: nothing could say to). Uninstalled since: it
+      // ends now.
+      if (!w.conn && !reconnected(w)) {
+        if (last || uninstalled(p)) return null;
+        if (await pauseWatch(w, pause, started + limitFor(long))) return null;
+        continue;
+      }
       // AgentMingo isn't answering: ask again once the wait is over (and at its end, not at all).
       if (backingOff(p, key, now())) {
         if (last) break;
@@ -3838,10 +4073,12 @@ export async function runWatch(home, raw, deps = {}) {
         continue;
       }
       // With replies on, it says when it asks next: until then the thread's page offers a reply.
-      const res = await ask(conn, sid, undefined, undefined, replies ? { listen: Math.ceil(pause / 1000) } : undefined);
+      const res = await watchAsk(w, undefined, undefined, replies ? { listen: Math.ceil(pause / 1000) } : undefined);
       noteSend(p, key, res, now());
-      // Disconnected, or refused (suspended, or made a viewer): nothing to wait for.
-      if (res.status === 401 || res.status === 403) return null;
+      // Refused (suspended, or made a viewer): nothing to wait for.
+      if (res.status === 403) return null;
+      // Disconnected: it goes on through the new connection, or waits for one (above).
+      if (res.status === 401) continue;
       // Typed in while it asked: what came goes with that message, not a wake.
       if (watchOver(w)) return null;
       const data = res.ok ? res.data : null;
@@ -3863,7 +4100,9 @@ export async function runWatch(home, raw, deps = {}) {
       const step = data && data.following && data.step && typeof data.step.id === "string" ? data.step : null;
       const known = readJson(stepFile(p, sid)) || {};
       if (step && !step.delivered && known.given !== step.id) {
-        const told = await ask(conn, sid, undefined, step.id);
+        const told = await watchAsk(w, undefined, step.id);
+        // Disconnected just now: the new connection's answer brings the step again.
+        if (told.status === 401) continue;
         if (!told.ok) return null;
         saveStep(p, sid, data, now());
         writeJson(stepFile(p, sid), { ...readJson(stepFile(p, sid)), given: step.id });
@@ -3877,9 +4116,10 @@ export async function runWatch(home, raw, deps = {}) {
           const ids = data.pending.map((i) => i.id);
           // A message just took (some of) them, and AgentMingo hasn't heard yet: they're told; wait for what comes next.
           if (claimTold(p, sid, ids)) {
-            const told = await ask(conn, sid, ids);
+            const told = await watchAsk(w, ids);
             if (!told.ok) {
               releaseTold(p, sid, [...new Set(ids.map(toldName))]);
+              if (told.status === 401) continue;
               return null;
             }
             rmSync(feedbackFile(p, sid), { force: true });
@@ -3895,8 +4135,9 @@ export async function runWatch(home, raw, deps = {}) {
       if (await pauseWatch(w, pause, started + limitFor(long))) return null;
     }
     // It listened its whole long watch with replies on: AgentMingo's latest word may say to keep the thread listening,
-    // with one short turn whose Stop starts a fresh watcher. Not when its person typed or it ended just now.
-    if (long && replies && !watchOver(w) && rearmToKeepListening(w, keep, cap)) return KEEP_LISTENING_NOTE;
+    // with one short turn whose Stop starts a fresh watcher. Not when its person typed or it ended just now, nor when its
+    // connection was removed on its last asks (a reply taken then, say) with no new one yet.
+    if (long && replies && w.conn && !watchOver(w) && rearmToKeepListening(w, keep, cap)) return KEEP_LISTENING_NOTE;
     return null;
   } finally {
     try {
@@ -4752,8 +4993,12 @@ function noteAnswered(home, p, sid, now, flush) {
  * terminal prompt stays): nothing to wait for (off, a subagent's prompt, a thread that doesn't report, a headless
  * run, a Claude Code version known to misbehave), in a terminal the prompt not on screen within DIALOG_SHOWN_WITHIN_MS, answered here
  * first, its time up, Claude Code gone, or an answer that doesn't match this prompt (its bind, the preview the page
- * showed, Allow still allowed here) or is over ANSWER_MAX_AGE_S old. When Claude Code stops the hook (STOP_SIGNALS),
- * it closes the request on its way out, best effort (closeOnSignal). Never throws.
+ * showed, Allow still allowed here) or is over ANSWER_MAX_AGE_S old; a prompt AgentMingo refused, couldn't open or
+ * answered with an error is left to the terminal too, and those unexpected ones are said in the log (noteLeft). When
+ * Claude Code stops the hook (STOP_SIGNALS),
+ * it closes the request on its way out, best effort (closeOnSignal). A 401 while it waits doesn't end it (reporter 20),
+ * as for the watcher: it goes on through the thread's new connection, or asks nothing until one appears (disconnected),
+ * unless uninstall ran here (uninstalled). Never throws.
  */
 export async function awaitDecision(home, raw, waitArg, deps = {}) {
   if (fromCursor(raw)) return null;
@@ -4762,7 +5007,12 @@ export async function awaitDecision(home, raw, waitArg, deps = {}) {
   let onStop = null;
   try {
     const w = waitingPrompt(home, raw, waitArg, deps);
-    if (!w || !(await openRequest(w))) return null;
+    if (!w) return null;
+    const notOpen = await openRequest(w);
+    if (notOpen) {
+      noteLeft(p, w.sid, w.target.toolName, notOpen);
+      return null;
+    }
     onStop = closeOnSignal.bind(null, w, deps.exit || process.exit);
     for (const s of STOP_SIGNALS) signals.once(s, onStop);
     return await waitForAnswer(w);
@@ -4780,8 +5030,17 @@ export async function awaitDecision(home, raw, waitArg, deps = {}) {
  * most, so it doesn't stay open on AgentMingo, then exits printing nothing.
  */
 export async function closeOnSignal(w, exit) {
-  await w.ask(w.conn, "/api/v1/agent-sessions/permissions/close", { session: w.sid, requestId: w.requestId, outcome: "stopped" }, CLOSE_ON_STOP_TIMEOUT_MS);
+  await sendClose(w, "stopped", CLOSE_ON_STOP_TIMEOUT_MS);
   exit(0);
+}
+
+/**
+ * Tells AgentMingo the hook (`w`) stopped waiting, as `outcome`, giving it `timeoutMs` at most: through the thread's
+ * connection, or its new one after a 401 (reconnected). Disconnected with no new connection, it tells nothing:
+ * AgentMingo closes a request nothing checks any more by itself.
+ */
+async function sendClose(w, outcome, timeoutMs) {
+  if (w.conn || reconnected(w, "this prompt closes its request")) await w.ask(w.conn, "/api/v1/agent-sessions/permissions/close", { session: w.sid, requestId: w.requestId, outcome }, timeoutMs);
 }
 
 /** This process's parent: Claude Code, until it's gone (then the hook is orphaned, and stops waiting). */
@@ -4790,9 +5049,25 @@ function parentPid() {
 }
 
 /**
+ * Says in the log, in one line, why a prompt the hook would have waited on (a thread's main conversation that reports,
+ * with answering prompts from AgentMingo on) was left to the terminal, when that wasn't expected (`why`): AgentMingo
+ * refused this computer not long ago, didn't open the prompt or refused to, answered its check with an error, or sent an
+ * answer this computer didn't apply. With the tool's name and the thread's first 8 characters, never what the tool
+ * would do. The expected cases (a subagent's prompt, a headless run, a thread that doesn't report, answering off, the
+ * prompt answered in the terminal) say nothing: the log is emptied when it grows past LOG_MAX_BYTES, and those lines
+ * would push out the ones worth finding.
+ */
+function noteLeft(p, sid, toolName, why) {
+  log(p, `a prompt for ${label(typeof toolName === "string" && toolName ? toolName : "a tool", 60)} in thread ${String(sid).slice(0, 8)} was left to the terminal: ${why}`);
+}
+
+/**
  * A prompt a hook may wait on, with all it needs to (`w`), or null: approvals on here and --wait given, a thread's
- * main conversation (not a subagent's), a thread that reports, AgentMingo answering, and a place where the prompt
- * stays on screen while hooks run (promptHost). Any prompt: a permission for any tool, a question, a plan.
+ * main conversation (not a subagent's), a thread that reports, AgentMingo not refusing this computer (a 403's wait,
+ * forbiddenNow), and a place where the prompt stays on screen while hooks run (promptHost). Any prompt: a permission
+ * for any tool, a question, a plan. Lookups paused after one got no answer within a second (LOOKUP_PAUSE_MS, which any
+ * thread's message can set off), or the sender waiting out an outage, don't stop it: the request gets its own tries
+ * (openRequest), so a slow moment elsewhere doesn't leave the prompt to the terminal.
  */
 function waitingPrompt(home, raw, waitArg, deps) {
   const p = paths(home);
@@ -4805,12 +5080,17 @@ function waitingPrompt(home, raw, waitArg, deps) {
   const route = sessionRoute(p, config, sid, typeof input.cwd === "string" ? input.cwd : null);
   if (route.scope !== "in") return null;
   const key = connectionKey(route.conn);
-  if (forbiddenNow(p, key, now()) || backingOff(p, key, now(), true)) return null;
+  // Prompts it would never wait on (a headless run, an unknown or known-bad Claude Code, nothing to show) leave first,
+  // without a line: only one it would have offered on AgentMingo says why it didn't.
   const host = promptHost(deps.facts || transcriptFacts(input.transcript_path));
   if (!host.ok) return null;
   const opts = { platform: deps.platform };
   const target = permissionTarget(input, opts);
   if (!target) return null;
+  if (forbiddenNow(p, key, now())) {
+    noteLeft(p, sid, input.tool_name, "AgentMingo refused this computer (403) not long ago, so nothing is asked there for a while");
+    return null;
+  }
   const started = now();
   const requestId = randomUUID();
   return {
@@ -4818,8 +5098,13 @@ function waitingPrompt(home, raw, waitArg, deps) {
     p,
     input,
     sid,
+    repo: route.repo,
     key,
+    // Null after a 401 until the thread has a new connection (disconnected).
     conn: route.conn,
+    // Tokens AgentMingo answered 401: never used again.
+    refused: new Set(),
+    goesOn: "this prompt keeps waiting",
     opts,
     target,
     requestId,
@@ -4838,23 +5123,58 @@ function waitingPrompt(home, raw, waitArg, deps) {
   };
 }
 
-/** Opens the request on AgentMingo, asking again for a second at a time while the thread's first report is on its way. */
+/** Answers an open is tried again for: the thread's first report on its way (404), no answer in time, busy, a 429. */
+function openAgain(status) {
+  return status === 404 || status === 0 || status === 429 || status >= 500;
+}
+
+/**
+ * Opens the request on AgentMingo: null once it's open there, or why it isn't (for the log, noteLeft). Within
+ * OPEN_RETRY_MS of the hook starting, it asks again (openAgain) while the thread's first report is on its way, and when
+ * AgentMingo didn't answer in time or was busy: a second apart, or as long as a 429's Retry-After asks; each try gives up
+ * when that time is up. Always with the same request id, so a try AgentMingo took whose answer didn't come back opens
+ * nothing twice (AgentMingo answers with the request it has). None of these pause this computer's reports or lookups:
+ * only a 403 starts that wait (noteSend), as it always did.
+ */
 async function openRequest(w) {
   const t = w.target;
   const body = { session: w.sid, requestId: w.requestId, tool: t.toolName, kind: t.kind, preview: t.preview, added: t.added, removed: t.removed, canAllow: t.canAllow, why: t.why, details: t.details, bind: w.bind, previewHash: w.previewHash };
-  while (w.now() - w.started < OPEN_RETRY_MS) {
-    const res = await w.ask(w.conn, "/api/v1/agent-sessions/permissions", { ...body, waitS: Math.floor((w.deadline - w.now()) / 1000) }, APPROVAL_FETCH_TIMEOUT_MS);
+  let res = null;
+  let tries = 0;
+  for (;;) {
+    const left = OPEN_RETRY_MS - (w.now() - w.started);
+    if (left <= 0) break;
+    res = await w.ask(w.conn, "/api/v1/agent-sessions/permissions", { ...body, waitS: Math.floor((w.deadline - w.now()) / 1000) }, Math.min(APPROVAL_FETCH_TIMEOUT_MS, left));
+    tries += 1;
     if (res.status === 403) noteSend(w.p, w.key, res, w.now());
-    if (res.status !== 404) return Boolean(res.ok && res.data && res.data.status === "pending");
-    await w.wait(1_000);
+    if (!openAgain(res.status)) break;
+    const pause = res.status === 429 && res.retryAfterMs > 0 ? res.retryAfterMs : 1_000;
+    if (w.now() - w.started + pause >= OPEN_RETRY_MS) break;
+    await w.wait(pause);
   }
-  return false;
+  const d = res && res.ok ? res.data : null;
+  if (d && d.status === "pending") return null;
+  if (d && d.status === "refused") return `AgentMingo refused to open it (${label(String(d.reason || "no reason given"), 40)})`;
+  if (d) return `AgentMingo answered its opening with "${label(String(d.status), 40)}"`;
+  const status = res ? res.status : 0;
+  const how = status ? `HTTP ${status}` : "no answer";
+  const why = status === 404 ? ": the thread's first report hadn't reached it" : "";
+  return `it couldn't be opened on AgentMingo (${how}${why}${openAgain(status) ? `, ${tries} ${tries === 1 ? "try" : "tries"} within ${OPEN_RETRY_MS / 1000} seconds` : ""})`;
 }
 
-/** Tells AgentMingo the hook stopped waiting, and how (CLOSE outcomes: answered_locally, expired, no_dialog, refused_locally, too_late). */
+/**
+ * Tells AgentMingo the hook stopped waiting, and how (CLOSE outcomes: answered_locally, expired, no_dialog,
+ * refused_locally, too_late), as sendClose does.
+ */
 async function closeRequest(w, outcome) {
-  await w.ask(w.conn, "/api/v1/agent-sessions/permissions/close", { session: w.sid, requestId: w.requestId, outcome }, APPROVAL_FETCH_TIMEOUT_MS);
+  await sendClose(w, outcome, APPROVAL_FETCH_TIMEOUT_MS);
   return null;
+}
+
+/** An answer from AgentMingo this computer didn't apply (`why`): said in the log, and the request closed as `outcome`. */
+function refuseAnswer(w, outcome, why) {
+  noteLeft(w.p, w.sid, w.target.toolName, `AgentMingo's answer wasn't applied: ${why}`);
+  return closeRequest(w, outcome);
 }
 
 /** Checks for an answer until there is one that applies, the prompt is answered here, or waiting is over (see awaitDecision). */
@@ -4869,13 +5189,31 @@ async function waitForAnswer(w) {
     // longer could hide it, so the terminal gets it now, as before. (Its apps ask and run the hook at once: no probe.)
     shown = shown || !w.probe || promptShownSince(w.p, w.sid, w.started);
     if (!shown && t - w.started >= DIALOG_SHOWN_WITHIN_MS) return closeRequest(w, "no_dialog");
+    // Disconnected, and the thread has no new connection yet: nothing is asked; it looks again at its pace, until its
+    // time is up, the prompt is answered here, or Claude Code is gone. Uninstalled since: nothing can answer it from
+    // AgentMingo, so it stops now, and Claude Code's own prompt stays.
+    if (!w.conn && !reconnected(w)) {
+      if (uninstalled(w.p)) return null;
+      await w.wait(Math.max(0, Math.min(approvalEveryMs(w.now() - w.started), w.deadline - w.now())));
+      continue;
+    }
     const res = await w.ask(w.conn, "/api/v1/agent-sessions/permissions/check", { session: w.sid, requestId: w.requestId }, APPROVAL_FETCH_TIMEOUT_MS);
     if (res.status === 403) noteSend(w.p, w.key, res, w.now());
-    if (res.status === 401 || res.status === 403 || res.status === 404) return null;
+    // The connection was removed in AgentMingo: the request is the person's, so the thread's new connection sees it too.
+    if (res.status === 401) {
+      disconnected(w);
+      continue;
+    }
+    if (res.status === 403 || res.status === 404) {
+      noteLeft(w.p, w.sid, w.target.toolName, res.status === 403 ? "AgentMingo answered its check 403 (it refused this computer)" : "AgentMingo answered its check 404 (it no longer knows the request)");
+      return null;
+    }
     const d = res.ok && res.data ? res.data : null;
     if (d && (d.status === "allowed" || d.status === "denied") && typeof d.bind === "string") return applyAnswer(w, d);
-    // Closed or timed out there, or picked up already: nothing to apply.
-    if (d && (d.delivered || !["pending", "allowed", "denied"].includes(d.status))) return null;
+    // Anything but waiting, without an answer to apply, is over there: closed or timed out, picked up already
+    // (`delivered`), or answered on the page and closed before it was picked up (no `bind`: the sweep closes a request
+    // nothing checked for 10 minutes, as after a disconnect). Claude Code's own prompt stays.
+    if (d && d.status !== "pending") return null;
     const every = approvalEveryMs(w.now() - w.started);
     const pause = res.status === 429 ? Math.max(res.retryAfterMs || 0, every) : every;
     await w.wait(Math.max(0, Math.min(pause, w.deadline - w.now())));
@@ -4887,27 +5225,29 @@ async function waitForAnswer(w) {
  * the page showed what this computer would still show for it (the file didn't turn into a link meanwhile, say), the
  * prompt wasn't answered here, "don't ask again" (`choice: "session"`) only where Claude Code suggested something to
  * allow (sessionSuggestions, applied for this session only), and a question's answers fit its questions
- * (answeredInput). Otherwise the request is closed as refused, and nothing printed.
+ * (answeredInput). Otherwise the request is closed as refused, nothing printed, and why said in the log (noteLeft;
+ * not for a prompt answered here first).
  */
 async function applyAnswer(w, d) {
-  if (d.bind !== w.bind) return closeRequest(w, "refused_locally");
-  if (!(Number(d.ageS) <= ANSWER_MAX_AGE_S)) return closeRequest(w, "too_late");
+  if (d.bind !== w.bind) return refuseAnswer(w, "refused_locally", "it isn't bound to this prompt");
+  if (!(Number(d.ageS) <= ANSWER_MAX_AGE_S)) return refuseAnswer(w, "too_late", `it was over ${ANSWER_MAX_AGE_S} seconds old when it was picked up`);
   const kind = w.target.kind;
   if (d.status !== "allowed") {
     noteAnswered(w.home, w.p, w.sid, w.now(), w.flush);
     return { behavior: "deny", kind, note: typeof d.note === "string" ? d.note : null, stop: d.stop === true };
   }
   const again = permissionTarget(w.input, w.opts);
-  if (!w.target.canAllow || d.shown !== w.previewHash || !again || !again.canAllow || previewHashOf(again) !== w.previewHash || answeredHere(w.p, w.sid, w.started, w.watch)) {
-    return closeRequest(w, "refused_locally");
+  if (!w.target.canAllow || d.shown !== w.previewHash || !again || !again.canAllow || previewHashOf(again) !== w.previewHash) {
+    return refuseAnswer(w, "refused_locally", "what the page showed isn't what this computer shows for it now");
   }
+  if (answeredHere(w.p, w.sid, w.started, w.watch)) return closeRequest(w, "refused_locally");
   const suggestions = d.choice === "session" ? sessionSuggestions(w.input.permission_suggestions) : null;
-  if (d.choice === "session" && !suggestions) return closeRequest(w, "refused_locally");
+  if (d.choice === "session" && !suggestions) return refuseAnswer(w, "refused_locally", `Claude Code suggested nothing for "don't ask again"`);
   const toolInput = w.input.tool_input && typeof w.input.tool_input === "object" ? w.input.tool_input : {};
   // A question is answered by its input carrying the answers; a plan is approved with its input as it came (Claude
   // Code wants input back with an allow for these two).
   const updatedInput = kind === "question" ? answeredInput(toolInput, d.answers) : kind === "plan" ? toolInput : null;
-  if (kind === "question" && !updatedInput) return closeRequest(w, "refused_locally");
+  if (kind === "question" && !updatedInput) return refuseAnswer(w, "refused_locally", "its answers don't fit the question");
   noteAnswered(w.home, w.p, w.sid, w.now(), w.flush);
   return { behavior: "allow", kind, ...(updatedInput ? { updatedInput } : {}), ...(suggestions ? { permissions: suggestions.apply, session: suggestions.shown } : {}) };
 }
@@ -5442,6 +5782,7 @@ function acquireLock(p) {
     if (Date.now() - statSync(p.lock).mtimeMs > LOCK_STALE_MS) {
       unlinkSync(p.lock);
       const fd = openSync(p.lock, "wx");
+      writeSync(fd, String(process.pid));
       closeSync(fd);
       return true;
     }
@@ -5574,12 +5915,16 @@ export async function removeConnection(config, timeoutMs = 15_000) {
 }
 
 /**
- * After AgentMingo answered 401 for a connection: it was removed there. The others go on (true); when it was the only
- * one, reporting stops until install runs again (false).
+ * After AgentMingo answered 401 for a connection (`conn`, as it was sent with): it was removed there. The others go on
+ * (true); when it was the only one, reporting stops until install runs again (false). Once a new setup command replaced
+ * it (another token for its organization in the config now, or no config left to change), there's nothing to forget.
  */
-function forgetConnection(p, key) {
+function forgetConnection(p, conn) {
+  const key = connectionKey(conn);
   const config = readJson(p.config);
-  const left = connectionsOf(config).filter((c) => connectionKey(c) !== key);
+  const all = connectionsOf(config);
+  if (!all.some((c) => connectionKey(c) === key && c.token === conn.token)) return true;
+  const left = all.filter((c) => connectionKey(c) !== key);
   if (left.length) {
     saveConnections(p, config, left);
     log(p, `the connection to ${key} was removed in AgentMingo; its threads aren't reported until you run its setup command again`);
@@ -5611,7 +5956,7 @@ async function learnScopes(p, failed) {
     noteSend(p, key, result, Date.now());
     const data = result.ok && result.body && result.body.data;
     if (data) rememberAnswer(p, readJson(p.config), key, conn, data);
-    else if (result.status === 401 && !forgetConnection(p, key)) return false;
+    else if (result.status === 401 && !forgetConnection(p, conn)) return false;
     else if (!result.ok) failed.add(key);
   }
   return true;
@@ -5716,7 +6061,7 @@ async function drainOutbox(p) {
       writeSteps(p, sessions, data.steps, Date.now());
       if (data.limited) log(p, `AgentMingo skipped ${data.skipped || 0} event(s) for ${key}: ${String(data.limited.reason || "a limit was reached").slice(0, 300)} Nothing more is sent there until ${when(Date.now() + result.limitedMs)}.`);
     }
-    if (result.status === 401 && !forgetConnection(p, key)) return { ok: true, waiting: 0 };
+    if (result.status === 401 && !forgetConnection(p, conn)) return { ok: true, waiting: 0 };
   }
 }
 
@@ -5832,6 +6177,8 @@ async function keepCurrent(p, config, drained) {
  * the next hook: short outages are what it's for, and it's a process left running meanwhile.
  */
 const RETRY_FOR_MS = 15 * 60_000;
+/** The most times that sender sends again before it leaves what's queued to the next hook (each wait is 24 s or more). */
+export const RETRY_TRIES = 10;
 
 /** One sender at a time waits out an outage. */
 function takeRetryLock(p) {
@@ -5853,9 +6200,10 @@ function takeRetryLock(p) {
 
 /**
  * After a send AgentMingo didn't take, the background sender waits until the wait is over and sends again
- * (and again, for up to 15 minutes), so a short outage doesn't leave a reply's last events waiting for the next
- * hook: hooks don't start senders meanwhile. One such sender per computer; a longer wait (a 429 until midnight)
- * is left to the first hook after it. Returns how many times it sent again.
+ * (and again, for up to 15 minutes by the clock, RETRY_TRIES times at most), so a short outage doesn't leave a reply's
+ * last events waiting for the next hook: hooks don't start senders meanwhile. Then it gives up and exits, and what's
+ * still queued stays in the outbox for the next hook's sender. One such sender per computer; a longer wait (a 429 until
+ * midnight) is left to the first hook after it. Returns how many times it sent again.
  */
 export async function retryFlush(home, deps = {}) {
   const p = paths(home);
@@ -5867,7 +6215,7 @@ export async function retryFlush(home, deps = {}) {
   if (at === null || at - started > RETRY_FOR_MS || !takeRetryLock(p)) return 0;
   let rounds = 0;
   try {
-    while (at !== null && at - started <= RETRY_FOR_MS) {
+    while (at !== null && at - started <= RETRY_FOR_MS && rounds < RETRY_TRIES) {
       await wait(Math.max(0, at - now()) + 1_000);
       await flush(home);
       rounds += 1;
@@ -5881,6 +6229,52 @@ export async function retryFlush(home, deps = {}) {
       // Already gone.
     }
   }
+}
+
+/**
+ * The longest a background sender (`flush`, which hooks start) and a reminder (`remind`) run, by the clock, whatever
+ * happens: a request that never ends, waits the computer slept through. Each ends well within it by itself (the
+ * sender's tries over 15 minutes, the reminder's minute and its one send); this is the backstop (endAfter).
+ */
+export const FLUSH_MAX_MS = RETRY_FOR_MS + 5 * 60_000;
+export const REMIND_MAX_MS = REMIND_AFTER_MS + 3 * 60_000;
+/** How often the backstop looks at the clock. */
+const BACKSTOP_EVERY_MS = 15_000;
+
+/** Lets go of the sender's locks this process holds (its process id is in them), so the next hook's sender can send. */
+function releaseOwnLocks(p) {
+  for (const file of [p.lock, p.retry]) {
+    try {
+      if (Number(readText(file)) === process.pid) unlinkSync(file);
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+/**
+ * Ends this background process (`what`, for the log) once it has run `maxMs` by the clock: wall time, so one whose
+ * waits a computer's sleep held up ends at its first look after waking. It lets go of the
+ * sender's locks it holds, says so in the log, and exits, leaving what's queued in the outbox for the next hook. It looks
+ * with a timer that never keeps the process alive by itself. Returns what stops it (for a process that ended first, and
+ * tests).
+ */
+export function endAfter(p, what, maxMs, deps = {}) {
+  const now = deps.now || Date.now;
+  const exit = deps.exit || process.exit;
+  const every = deps.setInterval || setInterval;
+  const stop = deps.clearInterval || clearInterval;
+  const started = now();
+  const timer = every(() => {
+    if (now() - started < maxMs) return;
+    stop(timer);
+    releaseOwnLocks(p);
+    // Not into a folder that's gone (a test's, removed meanwhile): logging would make it again.
+    if (existsSync(p.home)) log(p, `${what} ran ${Math.round(maxMs / 60_000)} minutes, its longest: stopped it; what's queued waits for the next hook`);
+    exit(0);
+  }, Math.min(BACKSTOP_EVERY_MS, maxMs));
+  if (timer && typeof timer.unref === "function") timer.unref();
+  return () => stop(timer);
 }
 
 // ---------------------------------------------------------------------------
@@ -7002,7 +7396,9 @@ async function uninstall(args) {
   // The hooks are out first, so nothing more is queued while AgentMingo is asked.
   const conns = connectionsOf(config);
   const gone = await Promise.all(conns.map((c) => removeConnection(c, DISCONNECT_TIMEOUT_MS)));
-  for (const file of [p.config, p.lock]) if (existsSync(file)) unlinkSync(file);
+  // A config a Disconnect put aside goes too (its token was refused already), so a thread's long wait sees this computer
+  // uninstalled and ends (uninstalled), instead of waiting for a setup command that isn't coming.
+  for (const file of [p.config, p.lock, `${p.config}.removed`]) if (existsSync(file)) unlinkSync(file);
   const named = (list) => list.map((c) => c.org || c.url).join(", ");
   const disconnected = conns.filter((_, i) => gone[i]);
   const left = conns.filter((_, i) => !gone[i]);
@@ -7260,7 +7656,8 @@ export async function main(argv) {
     // Cursor's own agent (it runs Claude Code's hooks too): ignored, before anything is read, asked or written.
     if (fromCursor(raw)) return 0;
     const home = resolve(values.home || defaultHome());
-    // Each waits on AgentMingo (a second at most), so they ask at the same time.
+    // Each waits on AgentMingo (a second at most), so they ask at the same time. (A thread's first message that came
+    // with its start first waits up to OPENING_WAIT_MS for the start to be sent: prepareStep.)
     await Promise.all([prepareTask(home, raw), prepareStep(home, raw), prepareFeedback(home, raw)]);
     // In a check of a release (problemRunning), a hook starts nothing in the background: the check runs the sender.
     const { context, hookEventName } = runHook(home, raw, Date.now(), !process.env.AGENTMINGO_CHECK);
@@ -7274,16 +7671,22 @@ export async function main(argv) {
     }
     return 0;
   }
+  // The two background processes hooks start: each ends by itself, and in any case within its longest (endAfter).
   if (command === "remind") {
     if (!safeId(values.session) || !Number.isFinite(Number(values.at))) return 0;
-    await runRemind(resolve(values.home || defaultHome()), values.session, Number(values.at)).catch(() => null);
+    const home = resolve(values.home || defaultHome());
+    const stop = endAfter(paths(home), "a reminder", REMIND_MAX_MS);
+    await runRemind(home, values.session, Number(values.at)).catch(() => null);
+    stop();
     return 0;
   }
   if (command === "flush") {
     const home = resolve(values.home || defaultHome());
+    const stop = endAfter(paths(home), "a background sender", FLUSH_MAX_MS);
     await runFlush(home);
     // A send AgentMingo didn't take: this background sender waits it out and sends again.
     await retryFlush(home).catch(() => 0);
+    stop();
     return 0;
   }
   if (command === "watch") {
