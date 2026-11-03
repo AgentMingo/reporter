@@ -206,13 +206,26 @@
  * repository is cloned, and a log). `approvals on` and `approvals off` change one thing there: the PermissionRequest
  * hook's command (--wait) and its timeout (a minute longer than the wait). An update to this version from an earlier one
  * changes one other thing there, once: the watch hook's timeout, raised to 8 hours and 10 minutes. `uninstall` takes the
- * hooks, the rules and the MCP server out and disconnects this computer; it leaves ~/.agentmingo and the copy of
+ * hooks, the rules and the MCP server out, sets back to untrusted in Claude Code the clones starts from AgentMingo
+ * marked trusted (below), and disconnects this computer; it leaves ~/.agentmingo and the copy of
  * your settings for you to delete. With --lean-git, install also adds the lean git rules to ~/.claude/CLAUDE.md, and
  * keeps a copy of that file as it was beside it (CLAUDE.md.agentmingo-backup), when there was one; `lean-git off`
  * takes the rules out. With starting threads from AgentMingo on (below), install also writes the helper's LaunchAgent,
  * ~/Library/LaunchAgents/com.agentmingo.start-from-web.plist (the whole file is AgentMingo's: it's never written over
  * or removed when it doesn't say so in its first lines), and starts it with launchctl; `start-from-web off` and
- * `uninstall` stop it and remove the file.
+ * `uninstall` stop it and remove the file. From version 21, each start you press on AgentMingo also changes one thing in
+ * Claude Code's state file (~/.claude.json, or the file Claude Code keeps its state in when you set $CLAUDE_CONFIG_DIR or
+ * $CLAUDE_CODE_CUSTOM_OAUTH_URL, or still have its older ~/.claude/.config.json), right before run-start (below) starts
+ * Claude Code: for your main clone of the task's repository (say ~/code/web, not the task's folder ~/code/web-WEB-12:
+ * Claude Code keys a worktree's trust to the clone it was made from), projects["<that clone's folder>"]
+ * .hasTrustDialogAccepted set to true (the entry made when there's none), which is what answering yes to Claude Code's
+ * question whether to trust a folder writes. Nothing else in that file changes, and nothing else marks a folder trusted:
+ * not install (which registers the MCP server there through `claude mcp add`), the hooks or `start`. That clone then
+ * stays trusted for every Claude Code session in it and its worktrees, on any branch, until you set the entry back to
+ * false, remove it, or uninstall (which sets back each clone a start marked that's still trusted, in the state file
+ * that start marked it in, as ~/.agentmingo/state/trusted.json keeps them; a mark you undid yourself is dropped from
+ * there once a start, `start-from-web off` or `status` sees it undone); a later start you press marks it again.
+ * Turning starting threads off doesn't undo it: `start-from-web off` says which clones stay trusted.
  *
  * On macOS and Linux, hooks run it through reporter.sh, which uses the Node.js install ran with, or the node on
  * your PATH once that one's gone (an nvm or Homebrew upgrade), and does nothing when there's none.
@@ -243,8 +256,21 @@
  * `run-start <id>` there: a fixed command built on this computer. In that window run-start makes the task's folder as
  * `start` does (the same safe .env files), and runs Claude Code there with the prompt "Work on <task key>", as you'd
  * start it yourself: Claude Code's own permission settings apply (no permission flag, and no settings or MCP config of
- * AgentMingo's). AgentMingo hears how it went (opened, started, or why it didn't, in one line with your home folder
- * shown as ~, and the repository's name), and the thread's first report says which start it came from. Its prompt
+ * AgentMingo's). Nobody may be at this Mac to answer Claude Code's question whether to trust the folder (from Claude
+ * Code 2.1.232 it asks before any hook runs, for a worktree about the clone it was made from), so from version 21,
+ * right before it starts Claude Code, run-start marks your main clone of the task's repository (its main checkout; it
+ * asks about no other folder, so no other is marked) as trusted in Claude Code's state file (above), when it isn't
+ * already, and says so in that window and in reporter.log. It holds Claude Code's own lock on that file while it reads
+ * and writes it (`<file>.lock`, as Claude Code names it), and writes it through a temporary file that's on disk before
+ * it takes the file's place. A state file that isn't there, is empty or isn't JSON is left alone, and while Claude Code
+ * is saving it (its lock held) it waits a moment, then leaves it alone (Claude Code then asks, as before). Trusting a
+ * clone lets that repository's own Claude Code settings apply there, as in any folder you trusted yourself: its hooks,
+ * allow rules, environment variables, helper commands (an apiKeyHelper, an MCP server's headersHelper), extra
+ * directories, and the MCP servers its .mcp.json and settings approve, from the task's branch (which may hold others'
+ * changes). AgentMingo hears how it went (opened, started, or why it didn't, in one line with your home folder shown as
+ * ~, the repository's name, and the names of the repositories it marked trusted), and the thread's first report says
+ * which start it came from, with those names again (run-start puts them in AGENTMINGO_START_TRUSTED, beside
+ * AGENTMINGO_START), so they're heard even when that word was lost. Its prompt
  * reaches the hooks as the thread's first message a second after it starts, before that report has gone: that hook
  * waits for the report to be sent (up to 4 seconds, looking at the outbox, asking nothing meanwhile), so the run the
  * start began hands its first workflow step with that message; start_task in the task's folder (above) brings it too.
@@ -254,10 +280,12 @@
  * task here, and answer its prompts if answering them from AgentMingo is on. Turn it on with the setup command's box
  * "Start threads on this computer from AgentMingo" (install's --start-from-web, with its one-time code), or with
  * `start-from-web on` in your own terminal (it asks you to type yes). Turn it off with `start-from-web off` (it stops
- * the helper and removes its LaunchAgent; so does uninstall), or on your Account page in AgentMingo, one organization
+ * the helper and removes its LaunchAgent, and leaves the clones starts marked trusted as they are, saying which; uninstall
+ * stops and removes it too, and sets those clones back), or on your Account page in AgentMingo, one organization
  * at a time (at its next check the helper stops taking that organization's starts, and stops once none is left). A
- * thread that starts this way may still ask, in its Terminal window, what only this Mac can answer (whether to trust a
- * new folder, say). `start-from-web helper --once` runs one of the helper's rounds by hand and prints each step.
+ * thread that starts this way may still ask, in its Terminal window, what only this Mac can answer (whether to trust the
+ * folder, when the state file couldn't be read, or a prompt while answering them from AgentMingo is off). `start-from-web
+ * helper --once` runs one of the helper's rounds by hand and prints each step.
  *
  * When the task's project has a workflow for threads, the session follows it: AgentMingo hands it one
  * step at a time (plan, build, test, open the pull request…) as a note, and Claude reports each step
@@ -335,7 +363,8 @@
  *   node reporter.mjs start-from-web helper [--once]                         the helper (launchd runs it)
  *   node reporter.mjs run-start <id> [--no-launch]                           one start (its Terminal window runs it)
  *   node reporter.mjs mcp                                                   the MCP server (Claude Code runs it)
- *   node reporter.mjs uninstall                                              remove the hooks, and disconnect
+ *   node reporter.mjs uninstall                                              remove the hooks, set back the clones
+ *                                                                            starts marked trusted, and disconnect
  *                                                                            this computer in AgentMingo
  *
  * Plain JavaScript with no dependencies on purpose: it runs on people's machines with Node 18+.
@@ -350,7 +379,9 @@ import {
   constants as fsConstants,
   copyFileSync,
   existsSync,
+  fchmodSync,
   fstatSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -362,6 +393,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  rmdirSync,
   statSync,
   truncateSync,
   unlinkSync,
@@ -375,7 +407,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "20";
+export const VERSION = "21";
 const SCRIPT = fileURLToPath(import.meta.url);
 /**
  * What every request says it is: the script's name and version and, from version 19, this computer's platform (darwin,
@@ -527,6 +559,8 @@ export function paths(home) {
     startsState: join(home, "state", "starts.json"),
     /** The helper's process id, so only one runs. */
     helperPid: join(home, "state", "start-helper.pid"),
+    /** The clones run-start marked trusted in Claude Code, and in which state file ([{ root, repo, at, file }]), so uninstall can set them back. */
+    trusted: join(home, "state", "trusted.json"),
     /** Where launchd writes what the helper prints on stderr (it shouldn't print anything). */
     helperLog: join(home, "helper.log"),
   };
@@ -542,6 +576,27 @@ function claudeDir() {
 
 function defaultClaudeSettings() {
   return join(claudeDir(), "settings.json");
+}
+
+/**
+ * Claude Code's state file, where it keeps your MCP servers and each project's trust, picked as Claude Code (2.1) picks
+ * it, from `env` (this process's own unless given): its older name, .config.json in its config folder
+ * ($CLAUDE_CONFIG_DIR, else ~/.claude), when that's a file with something in it, or an empty one someone may write while
+ * the other isn't there; else .claude.json ($CLAUDE_CODE_CUSTOM_OAUTH_URL set: .claude-custom-oauth.json) in
+ * $CLAUDE_CONFIG_DIR, else in the home folder. A relative $CLAUDE_CONFIG_DIR is from `cwd`, where Claude Code runs
+ * (this process's own folder unless given).
+ */
+export function claudeStateFile(env = process.env, cwd = process.cwd()) {
+  const named = resolve(cwd, env.CLAUDE_CONFIG_DIR || homedir(), env.CLAUDE_CODE_CUSTOM_OAUTH_URL ? ".claude-custom-oauth.json" : ".claude.json");
+  // Claude Code finds this one's folder with ?? (an empty $CLAUDE_CONFIG_DIR is where it runs), the other's with ||.
+  const legacy = resolve(cwd, (env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")).normalize("NFC"), ".config.json");
+  try {
+    const found = statSync(legacy);
+    if (found.isFile() && (found.size > 0 || ((found.mode & 0o222) !== 0 && !existsSync(named)))) return legacy;
+  } catch {
+    // No older file (or it can't be looked at): the file by its own name.
+  }
+  return named;
 }
 
 function readJson(file) {
@@ -1318,7 +1373,8 @@ export function fromCursor(raw) {
  * repository no organization lists (or in a folder that isn't a git repository) gets nothing and queues
  * nothing; one whose organization's list isn't known yet queues its event for the sender, which learns
  * the list first, and gets no notes meanwhile. A thread started from AgentMingo (run-start set AGENTMINGO_START in its
- * environment, `env`) says which start it came from on its first SessionStart event, once.
+ * environment, `env`) says which start it came from on its first SessionStart event, once, with the repositories that
+ * start marked trusted in Claude Code (AGENTMINGO_START_TRUSTED, startTrusted).
  */
 export function runHook(home, raw, now = Date.now(), flush = true, env = process.env) {
   if (fromCursor(raw)) return { event: null, context: null };
@@ -1393,10 +1449,14 @@ export function runHook(home, raw, now = Date.now(), flush = true, env = process
     if (event) {
       if (stepGiven) event.deliveredStep = stepGiven;
       if (keepAlive && event.kind === "stop") event.keepAlive = true;
-      // A thread run-start began for a start pressed on AgentMingo: its first report ties it to that start.
+      // A thread run-start began for a start pressed on AgentMingo: its first report ties it to that start, with the
+      // repositories whose clones that start marked trusted in Claude Code (from version 21), in case the word run-start
+      // sent about them was lost.
       const started = typeof env.AGENTMINGO_START === "string" && START_ID.test(env.AGENTMINGO_START) ? env.AGENTMINGO_START : null;
       if (started && event.kind === "start" && (input.source === "startup" || !input.source) && !state.startSent) {
         event.start = started;
+        const trusted = startTrustedOf(env);
+        if (trusted.length) event.startTrusted = trusted;
         state.startSent = started;
       }
       // Before its organization's list is known, queued without one: the sender learns the lists, then sends it there or drops it.
@@ -2294,14 +2354,18 @@ export async function taskFolder(home, key, opts = {}, deps = {}) {
   return { taskKey, title, branch, folder, clone, repository, others, lines };
 }
 
+/** This computer's clones of the task's other repositories (otherClone), as [{ repository, clone }]: the ones it has. */
+function otherClones(p, t, run) {
+  const known = readJson(p.repos) || {};
+  return t.others.map((o) => ({ repository: o, clone: otherClone(p, known, t.clone, o, run) })).filter((o) => o.clone);
+}
+
 /**
  * The folders Claude may work in besides the task's own: a workflow's plan can take the task into the organization's
- * other repositories (the task's folders are made next to each clone).
+ * other repositories (the task's folders are made next to each clone), so the folders those clones are in.
  */
-function extraDirs(p, t, run) {
-  const known = readJson(p.repos) || {};
-  const clones = t.others.map((o) => otherClone(p, known, t.clone, o, run)).filter(Boolean);
-  return clones.length ? [...new Set([dirname(t.clone), ...clones.map((c) => dirname(c))])] : [];
+function extraDirs(p, t, run, others = otherClones(p, t, run)) {
+  return others.length ? [...new Set([dirname(t.clone), ...others.map((o) => dirname(o.clone))])] : [];
 }
 
 /** Runs Claude Code in this terminal until it ends (with `env`, this process's own unless given), and returns its exit code. */
@@ -2363,6 +2427,17 @@ export async function startTask(home, key, opts = {}, deps = {}) {
 
 /** The first reporter version that starts threads from AgentMingo. AgentMingo keeps copies of these, which a test of its own keeps the same. */
 export const START_FROM_WEB_VERSION = 19;
+/**
+ * The first reporter version whose run-start marks the clone of the task's repository (its main checkout) as trusted in
+ * Claude Code (trustStartedClones).
+ */
+export const START_TRUSTS_CLONES_VERSION = 21;
+/**
+ * What trusting that clone lets apply, in these words wherever it's said (AgentMingo's pages keep a copy, which a test
+ * of its own keeps the same): the repository's own Claude Code settings.
+ */
+export const START_TRUST_LETS_APPLY =
+  "its hooks, allow rules, environment variables, helper commands (an apiKeyHelper, an MCP server's headersHelper), extra directories, and the MCP servers its .mcp.json and settings approve, from the task's branch (which may hold others' changes)";
 /** Where the helper asks for starts (check), takes one so it runs once (claim), and says how it went (result). */
 export const START_FROM_WEB_PATHS = { check: "/api/v1/agent-sessions/starts/check", claim: "/api/v1/agent-sessions/starts/claim", result: "/api/v1/agent-sessions/starts/result" };
 /** A start's id as AgentMingo makes them. Nothing else is ever used in a file's name or a command. */
@@ -2611,16 +2686,19 @@ function openTerminal(args) {
 
 /**
  * Tells AgentMingo how a start went (`result`: opened, started, or failed with its reason), with a one-line detail
- * (the home folder shown as ~) and the repository's name. A failure to tell it is logged; the start goes on. With
- * `again`, a request that got no answer is sent once more (the same result twice changes nothing there).
+ * (the home folder shown as ~), the repository's name and, from version 21, the names of the repositories whose clones
+ * it marked trusted in Claude Code (`trusted`: names only, never a path). A failure to tell it is logged; the start goes
+ * on. With `again`, a request that got no answer is sent once more (the same result twice changes nothing there).
  */
 async function sendStartResult(p, conn, id, result, post = postJson, timeoutMs = 15_000, again = true) {
+  const trusted = Array.isArray(result.trusted) ? result.trusted.filter(repositoryNameOk) : [];
   const body = {
     id,
     outcome: result.outcome,
     ...(result.reason ? { reason: result.reason } : {}),
     ...(result.detail ? { detail: label(terminalSafe(String(result.detail).split(homedir()).join("~")), 300) } : {}),
     ...(repositoryNameOk(result.repo) ? { repo: result.repo } : {}),
+    ...(trusted.length ? { trusted } : {}),
   };
   let res = await post(conn, START_FROM_WEB_PATHS.result, body, timeoutMs);
   if (again && res.status === 0) res = await post(conn, START_FROM_WEB_PATHS.result, body, timeoutMs);
@@ -2943,13 +3021,406 @@ function findClaude() {
   return null;
 }
 
+/** A JSON object (not null, not an array). */
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Whether Claude Code's state file's `projects` say `root` is trusted (its entry's hasTrustDialogAccepted is true). */
+function trustedIn(projects, root) {
+  return isRecord(projects[root]) && projects[root].hasTrustDialogAccepted === true;
+}
+
+/** How many times setTrust tries Claude Code's state file: while Claude Code holds its lock on it, or wrote it meanwhile. */
+const TRUST_WRITE_TRIES = 3;
+/** How long setTrust waits, each time, while Claude Code holds its own lock on that file (it saves it under `<file>.lock`). */
+const TRUST_LOCK_WAIT_MS = 200;
+
+/** Waits `ms` without returning to the event loop (setTrust is synchronous, and runs once per start). */
+function pauseSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Takes Claude Code's own lock on its state file: `lock`, `<file>.lock` with the file's path as Claude Code has it (next
+ * to a link, not where it leads), a folder made only when it isn't there, as Claude Code's lock (proper-lockfile) makes
+ * it. Returns { ino } (the lock's, so only that one is taken away), { held } while someone else holds it, or { problem }
+ * when it can't be made at all (its folder isn't there: neither is the file).
+ */
+function takeTrustLock(lock) {
+  try {
+    mkdirSync(lock);
+  } catch (e) {
+    if (e && e.code === "EEXIST") return { held: true };
+    return { problem: e && e.code === "ENOENT" ? "isn't there" : `couldn't be written (${(e && e.code) || e})` };
+  }
+  try {
+    return { ino: statSync(lock).ino };
+  } catch {
+    // Made a moment ago: it's this one.
+    return { ino: null };
+  }
+}
+
+/** Takes away the lock takeTrustLock made, only while it's still that one: never a lock someone else made since. */
+function releaseTrustLock(lock, ino) {
+  try {
+    if (ino === null || statSync(lock).ino === ino) rmdirSync(lock);
+  } catch {
+    // Gone already, or not empty (not this process's): left as it is.
+  }
+}
+
+/** Writes `text` to a new file `tmp` (never one that's there) with `mode`, all of it on disk before it's renamed anywhere. */
+function writeSyncedFile(tmp, text, mode) {
+  const fd = openSync(tmp, "wx", mode);
+  try {
+    const data = Buffer.from(text);
+    for (let at = 0; at < data.length; ) at += writeSync(fd, data, at, data.length - at);
+    fchmodSync(fd, mode);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** A folder's entries on disk, after a rename in it. Best effort: some platforms and file systems refuse to sync a folder. */
+function syncFolder(dir) {
+  let fd = null;
+  try {
+    fd = openSync(dir, "r");
+    fsyncSync(fd);
+  } catch {
+    // Refused here: the rename stands all the same.
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
+
+/**
+ * Sets the trust of clones in Claude Code's state file (`file`, claudeStateFile's; `roots`, each a clone's folder: where
+ * Claude Code keys a repository's trust, a worktree's too): projects[root].hasTrustDialogAccepted set to `value`. True
+ * is what answering yes to Claude Code's question whether to trust the folder writes: only for a root not trusted
+ * already, the entry made ({}) when there's none. False is what uninstall writes for the clones starts marked: only
+ * for a root whose entry is true now, never an entry made. Only that key; every other key stays as it was. It holds
+ * Claude Code's own lock on the file while it reads and writes it (takeTrustLock), waiting a moment while Claude Code
+ * holds it, and never takes away a lock it didn't make. Written through a temporary file in the real file's folder
+ * with the file's own mode, on disk before it's renamed over it, and only when the file didn't change since it was read
+ * (then it's read again). A file that isn't there, is empty or isn't Claude Code's JSON is left alone. Returns
+ * { changed } (the roots it set; none when there was nothing to set: nothing written), or { changed: [], problem } (why
+ * it wrote nothing, after the file's name: "isn't there").
+ */
+function setTrust(file, roots, value) {
+  const target = realTarget(file);
+  const lock = `${file}.lock`;
+  let problem = "kept changing while it was read (Claude Code writing it)";
+  for (let tries = 0; tries < TRUST_WRITE_TRIES; tries += 1) {
+    const taken = takeTrustLock(lock);
+    // Claude Code is saving it: what it saves comes first, then this reads it again.
+    if (taken.held) {
+      problem = "was being saved by Claude Code (its lock was held)";
+      pauseSync(TRUST_LOCK_WAIT_MS);
+      continue;
+    }
+    if (taken.problem) return { changed: [], problem: taken.problem };
+    let done;
+    try {
+      done = setTrustLocked(target, roots, value);
+    } finally {
+      releaseTrustLock(lock, taken.ino);
+    }
+    if (done) return done;
+    problem = "kept changing while it was read (Claude Code writing it)";
+  }
+  return { changed: [], problem };
+}
+
+/**
+ * Claude Code's state file (`file`) as it is now: { before (what statSync said of it), text, state (its JSON), projects
+ * (its `projects`, {} when it has none) }, or { problem } (after the file's name: "isn't there") when it isn't there,
+ * can't be read, is empty or isn't the JSON Claude Code writes.
+ */
+function readClaudeState(file) {
+  let before;
+  let text;
+  try {
+    before = statSync(file);
+    text = readFileSync(file, "utf8");
+  } catch (e) {
+    return { problem: e && e.code === "ENOENT" ? "isn't there" : `couldn't be read (${(e && e.code) || e})` };
+  }
+  if (!text.trim()) return { problem: "is empty" };
+  let state = null;
+  try {
+    state = JSON.parse(text);
+  } catch {
+    // Not JSON: left alone, below.
+  }
+  if (!isRecord(state) || (state.projects !== undefined && !isRecord(state.projects))) return { problem: "isn't the JSON Claude Code writes" };
+  return { before, text, state, projects: state.projects || {} };
+}
+
+/**
+ * setTrust's read and write of the state file (`target`, where it really is), under the lock: what setTrust returns,
+ * or null when the file changed between being read and being replaced (a writer that doesn't take the lock), so that
+ * what it wrote stays and it's read again.
+ */
+function setTrustLocked(target, roots, value) {
+  const read = readClaudeState(target);
+  if (read.problem) return { changed: [], problem: read.problem };
+  const { before, text, state, projects } = read;
+  const changed = roots.filter((root) => trustedIn(projects, root) !== value);
+  if (!changed.length) return { changed };
+  const next = { ...state, projects: { ...projects } };
+  for (const root of changed) next.projects[root] = { ...(isRecord(projects[root]) ? projects[root] : {}), hasTrustDialogAccepted: value };
+  // As Claude Code writes it: its indent, and its last line break when it has one.
+  const indent = /^\{\r?\n([ \t]+)"/.exec(text)?.[1] ?? 2;
+  const mode = before.mode & 0o777;
+  const tmp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+  try {
+    writeSyncedFile(tmp, `${JSON.stringify(next, null, indent)}${text.endsWith("\n") ? "\n" : ""}`, mode);
+    const now = statSync(target);
+    if (now.mtimeMs !== before.mtimeMs || now.size !== before.size || now.ino !== before.ino) {
+      rmSync(tmp, { force: true });
+      return null;
+    }
+    renameSync(tmp, target);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    return { changed: [], problem: `couldn't be written (${(e && e.code) || e})` };
+  }
+  syncFolder(dirname(target));
+  return { changed };
+}
+
+/** setTrust, never throwing: what went wrong is its problem (nothing changed). */
+function trySetTrust(file, roots, value) {
+  try {
+    return setTrust(file, roots, value);
+  } catch (e) {
+    return { changed: [], problem: `couldn't be written (${e && e.message ? e.message : e})` };
+  }
+}
+
+/**
+ * The clone run-start marks as trusted before it starts Claude Code, as [{ repo, root }] (none or one): the task's
+ * repository, the main checkout of its folder (a worktree), where Claude Code keys the trust of the folder it starts in.
+ * Only that one: Claude Code asks about no other folder (none for --add-dir's), so marking others would let their
+ * settings apply for nothing. Looked up again with git (cloneOf) and kept only when it's a clone of the task's
+ * repository by its name, or an earlier one; never the home folder or the disk's root.
+ */
+function startedClones(t, run) {
+  const c = cloneOf(t.folder, run);
+  if (!c || !namesOf(t.repository).includes(c.repo.toLowerCase())) return [];
+  if (c.clone === homedir() || c.clone === dirname(c.clone)) return [];
+  return [{ repo: t.repository.fullName, root: c.clone }];
+}
+
+/**
+ * Right before run-start starts Claude Code for start `id` (task `t`, in its folder): marks the clone of the task's
+ * repository (its main checkout: `clones`, startedClones) as trusted in Claude Code (setTrust, in claudeStateFile(env)
+ * as Claude Code finds it from the task's folder), so it doesn't stop on its question whether to trust the folder,
+ * which nobody may be at this Mac to answer. Logs each clone it marked, and why it marked none when it couldn't, says
+ * so in the window, and keeps the ones it marked, with that file, in state/trusted.json (noteTrusted) for uninstall.
+ * Never throws. Returns the names of the repositories it marked, for AgentMingo.
+ */
+function trustStartedClones(p, id, t, clones, env, say) {
+  if (!clones.length) return [];
+  const file = claudeStateFile(env, t.folder);
+  // An empty or relative $CLAUDE_CONFIG_DIR puts it in the task's folder: a file of the repository's, never written here.
+  const inRepository = inFolder(file, t.folder) || clones.some((c) => inFolder(file, c.root));
+  const done = inRepository ? { changed: [], problem: "is in the repository's own folder" } : trySetTrust(file, clones.map((c) => c.root), true);
+  if (done.problem) {
+    const roots = clones.map((c) => tildePath(c.root)).join(", ");
+    log(p, `start-from-web: didn't mark ${roots} as trusted in Claude Code for start ${id} (${t.taskKey}): ${tildePath(file)} ${done.problem}`);
+    say(`AgentMingo: couldn't mark ${roots} as trusted in Claude Code (${tildePath(file)} ${done.problem}). If Claude Code asks whether to trust the folder, answer it here.`);
+    return [];
+  }
+  const marked = clones.filter((c) => done.changed.includes(c.root));
+  for (const c of marked) log(p, `start-from-web: marked ${tildePath(c.root)} as trusted in Claude Code for start ${id} (${t.taskKey})`);
+  if (marked.length) {
+    noteTrusted(p, marked, file);
+    say(
+      `AgentMingo: marked ${marked.map((c) => tildePath(c.root)).join(", ")} as trusted in Claude Code (in ${tildePath(file)}), so it starts without asking whether to trust the folder. That clone stays trusted for every Claude Code session in it and its worktrees, on any branch, until you set its entry's hasTrustDialogAccepted back to false, remove the entry, or uninstall (a later start from AgentMingo marks it again).`,
+    );
+  }
+  return marked.map((c) => c.repo);
+}
+
+/** The names Claude Code gives its state file (claudeStateFile's): a recorded file by any other name isn't followed. */
+const CLAUDE_STATE_NAMES = [".claude.json", ".claude-custom-oauth.json", ".config.json"];
+
+/**
+ * The clones starts marked trusted in Claude Code, as state/trusted.json keeps them ([{ root, repo, at, file }]): the
+ * ones that read.
+ */
+function trustedRecord(p) {
+  const list = readJson(p.trusted);
+  return Array.isArray(list) ? list.filter((r) => isRecord(r) && typeof r.root === "string" && isAbsolute(r.root)) : [];
+}
+
+/**
+ * The state file a recorded mark was made in (its `file`: claudeStateFile's, as the start's Terminal window had it), so
+ * it's looked at and set back there, whichever file the shell doing that would pick (one with $CLAUDE_CONFIG_DIR set
+ * when the window had none, say). A mark with none, or with a file that isn't by one of Claude Code's names for it:
+ * the file Claude Code picks from `env`.
+ */
+function markFile(r, env) {
+  return typeof r.file === "string" && isAbsolute(r.file) && CLAUDE_STATE_NAMES.includes(basename(r.file)) ? r.file : claudeStateFile(env);
+}
+
+/** Where a recorded mark is (its state file, as recorded, and its clone): the record keeps one entry for each, the latest. */
+function markPlace(r) {
+  return JSON.stringify([typeof r.file === "string" ? r.file : null, r.root]);
+}
+
+/** A recorded mark, told apart from a later one in the same place by its time. */
+function markKey(r) {
+  return `${markPlace(r)}@${r.at}`;
+}
+
+/** The clones recorded marks are for, each once. */
+function rootsOf(marks) {
+  return [...new Set(marks.map((r) => r.root))];
+}
+
+/** Recorded marks by the state file each was made in (markFile, from `env` for one with none): [{ file, marks }]. */
+function marksByFile(marks, env) {
+  const byFile = new Map();
+  for (const r of marks) {
+    const file = markFile(r, env);
+    byFile.set(file, [...(byFile.get(file) || []), r]);
+  }
+  return [...byFile].map(([file, list]) => ({ file, marks: list }));
+}
+
+/**
+ * Keeps the clones a start marked trusted in Claude Code (`marked`, [{ repo, root }]) in state/trusted.json, with the
+ * state file it marked them in (`file`), one entry a clone and file (the latest), written in one step, so `start-from-web
+ * off` can say which stay trusted and uninstall can set them back, in that file. A failure is logged; the start goes on.
+ */
+function noteTrusted(p, marked, file, now = Date.now()) {
+  const byPlace = new Map(trustedRecord(p).map((r) => [markPlace(r), r]));
+  for (const c of marked) {
+    const mark = { root: c.root, repo: c.repo, at: now, file };
+    byPlace.set(markPlace(mark), mark);
+  }
+  try {
+    writeJson(p.trusted, [...byPlace.values()], 0o600);
+  } catch (e) {
+    log(p, `start-from-web: couldn't keep ${marked.map((c) => tildePath(c.root)).join(", ")} in ${tildePath(p.trusted)} (uninstall won't set it back): ${(e && e.message) || e}`);
+  }
+}
+
+/**
+ * Takes recorded marks (`gone`) out of state/trusted.json, read again first, so a mark a start recorded meanwhile
+ * stays; the file goes once none is left. A failure is logged (they stay recorded).
+ */
+function forgetMarks(p, gone) {
+  if (!gone.length) return;
+  const drop = new Set(gone.map(markKey));
+  const left = trustedRecord(p).filter((r) => !drop.has(markKey(r)));
+  try {
+    if (left.length) writeJson(p.trusted, left, 0o600);
+    else rmSync(p.trusted, { force: true });
+  } catch (e) {
+    log(p, `start-from-web: couldn't update ${tildePath(p.trusted)}: ${(e && e.message) || e}`);
+  }
+}
+
+/**
+ * The marks starts made that still stand, each state file they're in read now (readClaudeState; only read, so without
+ * Claude Code's lock: a file caught half written isn't JSON, and counts as unread): [{ file, roots }] for the clones
+ * still trusted there, and [{ file, roots, problem }] for those recorded in a file that couldn't be read (still marked,
+ * for all anyone here can tell). A mark whose clone isn't trusted there any more (its entry set back to false or
+ * removed, by its person or by Claude Code) is forgotten (forgetMarks), so uninstall won't set back a trust its person
+ * gives that clone again later. Run by run-start, `start-from-web off` (and install's --no-start-from-web), and status.
+ * Never throws.
+ */
+function marksStillTrusted(p, env = process.env) {
+  const left = [];
+  const gone = [];
+  for (const { file, marks } of marksByFile(trustedRecord(p), env)) {
+    const read = readClaudeState(file);
+    if (read.problem) {
+      left.push({ file, roots: rootsOf(marks), problem: read.problem });
+      continue;
+    }
+    const still = marks.filter((r) => trustedIn(read.projects, r.root));
+    gone.push(...marks.filter((r) => !trustedIn(read.projects, r.root)));
+    if (still.length) left.push({ file, roots: rootsOf(still) });
+  }
+  forgetMarks(p, gone);
+  return left;
+}
+
+/**
+ * Uninstall's undoing of the marks starts made (state/trusted.json): in each state file a mark was made in (markFile:
+ * the one the start wrote, whichever this shell would pick), each recorded clone that's still trusted set back to
+ * false (setTrust: the same lock and write as marking it). The marks it dealt with are forgotten; those in a file it
+ * couldn't write stay recorded (uninstall run again tries again). Returns, for each such file, { file, roots (the
+ * recorded ones), changed (the ones it set back) } and, when it couldn't, its problem; [] when starts marked none.
+ */
+function untrustStartedClones(p, env = process.env) {
+  const record = trustedRecord(p);
+  if (!record.length) {
+    rmSync(p.trusted, { force: true });
+    return [];
+  }
+  const done = marksByFile(record, env).map(({ file, marks }) => ({ file, marks, ...trySetTrust(file, rootsOf(marks), false) }));
+  forgetMarks(p, done.filter((d) => !d.problem).flatMap((d) => d.marks));
+  return done.map(({ file, marks, changed, problem }) => ({ file, roots: rootsOf(marks), changed, ...(problem ? { problem } : {}) }));
+}
+
+/**
+ * What uninstall says of one state file's marks (one of untrustStartedClones' answers): the clones it set back, or
+ * why it couldn't; nothing when none was still trusted. One it set back may be one its person had set back and
+ * trusted again themselves, with nothing here to see it between (marksStillTrusted): said so.
+ */
+function untrustedSaid(u) {
+  const file = tildePath(u.file);
+  if (u.problem) {
+    return [
+      `Couldn't set ${u.roots.map(tildePath).join(", ")} back to untrusted in Claude Code: ${file} ${u.problem}. Set ${u.roots.length === 1 ? "its" : "each one's"} hasTrustDialogAccepted back to false there yourself (or remove the entry), or run uninstall again.`,
+    ];
+  }
+  if (!u.changed.length) return [];
+  const it = u.changed.length === 1 ? "it" : "them";
+  return [
+    `Set ${u.changed.map(tildePath).join(", ")} back to untrusted in Claude Code (hasTrustDialogAccepted false, in ${file}): starts from AgentMingo had marked ${it} trusted. Claude Code asks again before it trusts ${it}; if you had trusted ${it} again yourself since, answer yes then.`,
+  ];
+}
+
+/**
+ * What turning starting threads off leaves as it is (marksStillTrusted, looked at now): for each state file, the
+ * clones starts marked trusted there that still are (or may be, when the file couldn't be read), and how to undo
+ * that. None when there are none.
+ */
+function trustStaysSaid(p, env = process.env) {
+  return marksStillTrusted(p, env).map(trustStaysLine);
+}
+
+/** trustStaysSaid's words for one state file's marks ({ file, roots, problem }: one of marksStillTrusted's). */
+function trustStaysLine(m) {
+  const one = m.roots.length === 1;
+  const file = tildePath(m.file);
+  const left = one ? "that clone" : "those clones";
+  const stays = m.problem
+    ? `as trusted in Claude Code, in ${file}, which ${m.problem} now, so ${one ? "it" : "they"} couldn't be checked: unless ${one ? "it was" : "they were"} set back since, turning starting threads off leaves ${left} trusted.`
+    : `as trusted in Claude Code, and turning starting threads off leaves ${left} trusted.`;
+  return `Starts from AgentMingo marked ${m.roots.map(tildePath).join(", ")} ${stays} To undo it: node ${SCRIPT} uninstall (it sets ${one ? "it" : "them"} back), or set ${one ? "its" : "each one's"} hasTrustDialogAccepted back to false in ${file}, or remove ${one ? "the" : "each"} entry.`;
+}
+
 /**
  * `run-start <id> [--no-launch]`, which the Terminal window the helper opened runs: once per start (its file is taken
  * as it begins), it makes the task's folder as `start` does (taskFolder, from that start's organization only, with the
  * safe .env files) and runs Claude Code there, working on the task: `claude "Work on WEB-12"`, as you'd start it
  * yourself, so Claude Code's own permission settings apply (no permission flag, no settings or MCP config of
- * AgentMingo's). AGENTMINGO_START tells the thread's first report which start it was. AgentMingo hears how it went.
- * Returns Claude Code's exit code. Never inside Claude Code's Bash tool, and only in a terminal (but with --no-launch).
+ * AgentMingo's). Right before that, from version 21, it marks the clone of the task's repository (its main checkout)
+ * as trusted in Claude Code (trustStartedClones; not with --no-launch, which starts nothing). AGENTMINGO_START tells
+ * the thread's first report which start it was, and AGENTMINGO_START_TRUSTED what that start marked trusted.
+ * AgentMingo hears how it went. Returns Claude Code's exit code. Never inside Claude Code's Bash tool, and only in a
+ * terminal (but with --no-launch).
  */
 export async function runStart(home, id, flags = {}, deps = {}) {
   const say = deps.say || console.log;
@@ -3017,15 +3488,38 @@ async function runTakenStart(p, id, info, flags, deps, say) {
     say(`AgentMingo: couldn't find Claude Code on this Mac. Check that claude runs in a new Terminal window, then start it yourself: cd ${shellQuote(t.folder)} && claude ${shellQuote(prompt)}`);
     return 1;
   }
-  const dirs = extraDirs(p, t, run);
-  await tell({ outcome: "started", repo: t.repository.fullName });
+  const others = otherClones(p, t, run);
+  const dirs = extraDirs(p, t, run, others);
+  // Only when Claude Code starts now, after every check passed: nobody may be at this Mac to answer its trust question.
+  const trusted = flags.noLaunch ? [] : trustStartedClones(p, id, t, startedClones(t, run), deps.env, say);
+  // Marks of earlier starts set back since are forgotten, so uninstall won't undo a trust given again by hand later.
+  if (!flags.noLaunch) marksStillTrusted(p, deps.env);
+  await tell({ outcome: "started", repo: t.repository.fullName, trusted });
   if (flags.noLaunch) {
     say(`Folder: ${t.folder}`);
     return 0;
   }
   if (dirs.length) say(`Claude can also work in ${dirs.join(", ")}, for the other repositories the plan may name.`);
-  // As you'd start it yourself: the prompt first (--add-dir takes every argument after it), and nothing else.
-  return (deps.launch || launch)(cli, [prompt, ...(dirs.length ? ["--add-dir", ...dirs] : [])], t.folder, { ...deps.env, AGENTMINGO_START: id });
+  // As you'd start it yourself: the prompt first (--add-dir takes every argument after it), and nothing else. The
+  // thread's first report says which start it was, and what it marked trusted (should the word above have been lost).
+  return (deps.launch || launch)(cli, [prompt, ...(dirs.length ? ["--add-dir", ...dirs] : [])], t.folder, startEnv(deps.env, id, trusted));
+}
+
+/**
+ * Claude Code's environment for start `id`: run-start's own (`env`), with AGENTMINGO_START (the start) and, when it
+ * marked clones trusted, AGENTMINGO_START_TRUSTED (`trusted`, the repositories' names, comma-separated; none from
+ * anywhere else), which the thread's first SessionStart report carries to AgentMingo.
+ */
+function startEnv(env, id, trusted) {
+  const { AGENTMINGO_START_TRUSTED: _inherited, ...rest } = env;
+  const names = trusted.filter(repositoryNameOk);
+  return { ...rest, AGENTMINGO_START: id, ...(names.length ? { AGENTMINGO_START_TRUSTED: names.join(",") } : {}) };
+}
+
+/** The repositories a start marked trusted, as run-start put them in its thread's environment (startEnv): names only, at most 10. */
+function startTrustedOf(env) {
+  const raw = typeof env.AGENTMINGO_START_TRUSTED === "string" ? env.AGENTMINGO_START_TRUSTED : "";
+  return [...new Set(raw.split(",").filter(repositoryNameOk))].slice(0, 10);
 }
 
 /** What turning starting threads from AgentMingo on does, in words (`start-from-web on` asks after these; install says them). */
@@ -3033,8 +3527,9 @@ function startFromWebSaid() {
   return [
     `- A helper on this Mac (a LaunchAgent: ~/Library/LaunchAgents/${START_FROM_WEB_LABEL}.plist) asks AgentMingo about every ${START_POLL_DEFAULT_MS / 1000} seconds, while you're logged in and the Mac is awake, whether you pressed Start on my computer on a task.`,
     `- When you did, it opens Terminal with one fixed command built on this Mac: Claude Code in the task's folder (made as start makes it, with the same .env files), working on “Work on <task key>”. AgentMingo sends only the task's key, never a command or a path. Claude Code's own permission settings apply, as when you start it yourself. At most ${START_OPENS_PER_HOUR} starts an hour.`,
+    `- Right before it starts Claude Code, it marks your main clone of the task's repository (say ~/code/web, not the task's folder ~/code/web-WEB-12) as trusted in Claude Code (projects["<clone>"].hasTrustDialogAccepted in ${tildePath(claudeStateFile())}, nothing else), so Claude Code doesn't stop to ask whether to trust the folder. That clone then stays trusted for every Claude Code session in it and its worktrees, on any branch, until you set the entry back to false, remove it, or uninstall (a later start marks it again; turning starting threads off doesn't undo it). Trusting it lets that repository's own Claude Code settings apply there: ${START_TRUST_LETS_APPLY}.`,
     "- Only you can start threads here, signed in as yourself (not teammates or admins). Someone who gets into your AgentMingo account could start a thread on a task here, and answer its prompts if answering them from AgentMingo is on.",
-    "- Sent: that it's on, whether answering prompts from AgentMingo is on here, and how each start went (opened, started, or why not, in one line with your home folder shown as ~, and the repository's name). Never this Mac's name.",
+    "- Sent: that it's on, whether answering prompts from AgentMingo is on here, and how each start went (opened, started, or why not, in one line with your home folder shown as ~, the repository's name, and which repositories' clones it marked trusted, said again in the thread's first report with the start it came from). Never this Mac's name.",
     `- To turn it off: node ${SCRIPT} start-from-web off, or on your Account page in AgentMingo.`,
   ];
 }
@@ -3125,6 +3620,8 @@ export async function startFromWebCommand(home, mode, flags = {}, deps = {}) {
   if (mode === "helper") return runStartHelper(home, { ...deps, once: Boolean(flags.once), say: flags.once ? say : undefined });
   if (mode === "status") {
     say(startFromWebLine(p, readJson(p.config), deps));
+    // Marks set back since are forgotten (marksStillTrusted), so uninstall won't undo a trust given again by hand later.
+    marksStillTrusted(p, deps.env);
     return 0;
   }
   if (mode === "off") {
@@ -3134,6 +3631,8 @@ export async function startFromWebCommand(home, mode, flags = {}, deps = {}) {
         ? `Starting threads from AgentMingo is off here. ${tildePath(done.file)} isn't one AgentMingo's reporter wrote, so it was left alone.`
         : `Starting threads from AgentMingo is off here: the helper stopped${done.removed ? `, and ${tildePath(done.file)} is gone` : ""}. To turn it on again: node ${SCRIPT} start-from-web on`,
     );
+    // The clones its starts marked trusted in Claude Code that still are stay so: said, with how to undo it.
+    for (const line of trustStaysSaid(p, deps.env)) say(line);
     return 0;
   }
   if ((deps.platform || process.platform) !== "darwin") throw new Error("Starting threads from AgentMingo works on macOS for now.");
@@ -7104,7 +7603,7 @@ export function approvalsStayedOffSaid(why) {
 }
 
 /**
- * What install's --start-from-web (the setup command's box "Start threads on this computer from AgentMingo", unticked by
+ * What install's --start-from-web (the setup command's box "Start threads on this computer from AgentMingo", ticked by
  * default) does here, decided once the code is traded, as approvalsFromSetup decides for answering prompts: "on" with a
  * one-time code made with the box ticked, on a Mac, for the copy the setup command installs; otherwise why it stays
  * off ("no_code", "unticked", "not_mac", "not_installed"); null when there's nothing to do (no --start-from-web, or
@@ -7260,6 +7759,7 @@ async function install(args) {
     console.log(startsStayedOffSaid(starts));
   } else if (helper && helper.off) {
     console.log(`Starting threads from AgentMingo is off here (--no-start-from-web): its helper stopped${helper.off.removed ? `, and ${tildePath(helper.off.file)} is gone` : ""}.`);
+    for (const line of trustStaysSaid(p)) console.log(line);
   }
   console.log(watchLine(config));
   console.log(
@@ -7275,7 +7775,9 @@ async function install(args) {
   }
   if (mcp === "added") console.log("The agentmingo MCP server is set up in Claude Code (claude mcp add, for your user), with its step tools.");
   else if (mcp !== "skipped") console.log(`To give Claude the step tools, run: ${mcp}`);
-  console.log(`To remove it all: node ${SCRIPT} uninstall (it takes out the hooks, the permission rules and the MCP server, and leaves ${home} for you to delete).`);
+  console.log(
+    `To remove it all: node ${SCRIPT} uninstall (it takes out the hooks, the permission rules and the MCP server, sets back to untrusted in Claude Code the clones starts from AgentMingo marked trusted, and leaves ${home} for you to delete).`,
+  );
   console.log(`To check on it later: node ${SCRIPT} status. Something not working? What to try: ${troubleshootingUrl(null, url)}`);
   if (args["lean-git"]) leanGit({ file: args["lean-git-file"] }, "on");
   if (process.env.VSCODE_INSPECTOR_OPTIONS) console.log("The “Debugger listening” lines come from VS Code's Auto Attach, not AgentMingo. They're harmless, and the hooks turn it off for themselves.");
@@ -7328,7 +7830,7 @@ const CLAUDE_CLI_TIMEOUT_MS = 30_000;
 
 /** The agentmingo MCP server as Claude Code has it registered for this user ({ command, args, env }), or null. */
 function mcpRegistration() {
-  const servers = (readJson(join(process.env.CLAUDE_CONFIG_DIR || homedir(), ".claude.json")) || {}).mcpServers;
+  const servers = (readJson(claudeStateFile()) || {}).mcpServers;
   const server = servers && typeof servers === "object" ? servers.agentmingo : null;
   return server && typeof server === "object" && typeof server.command === "string" ? server : null;
 }
@@ -7374,7 +7876,8 @@ const DISCONNECT_TIMEOUT_MS = 5_000;
 
 /**
  * Takes this reporter's hooks, permission rules and MCP server out of Claude Code (and stops the helper that starts
- * threads from AgentMingo, taking its LaunchAgent away), disconnects this computer in
+ * threads from AgentMingo, taking its LaunchAgent away, and sets the clones its starts marked trusted in Claude Code
+ * back to untrusted: untrustStartedClones), disconnects this computer in
  * AgentMingo (each organization's connection, so the Sessions page stops listing it and its token stops working),
  * and forgets the connections. AgentMingo out of reach doesn't stop it: it says to disconnect on the Sessions page.
  */
@@ -7391,6 +7894,8 @@ async function uninstall(args) {
   // LaunchAgent and files taken away.
   const plist = readText(helperPlistFile());
   const helper = (config && config.startFromWeb === true) || (plist !== null && plist.includes(START_HELPER_MARKER)) ? unloadStartHelper(p) : null;
+  // Once the helper can't start another: the clones its starts marked trusted in Claude Code, set back.
+  const untrusted = untrustStartedClones(p);
   const cli = args["no-mcp"] ? null : claudeCli();
   if (cli) spawnSync(cli, ["mcp", "remove", "-s", "user", "agentmingo"], { stdio: "ignore", timeout: CLAUDE_CLI_TIMEOUT_MS });
   // The hooks are out first, so nothing more is queued while AgentMingo is asked.
@@ -7404,6 +7909,7 @@ async function uninstall(args) {
   const left = conns.filter((_, i) => !gone[i]);
   console.log(`Removed the AgentMingo hooks and permission rules from ${settingsFile}${cli ? ", and its MCP server from Claude Code" : ""}. Nothing more is sent.`);
   if (helper && helper.removed) console.log(`Stopped the helper that starts threads from AgentMingo and removed ${tildePath(helper.file)}.`);
+  for (const line of untrusted.flatMap(untrustedSaid)) console.log(line);
   if (disconnected.length) console.log(`Disconnected this computer in AgentMingo (${named(disconnected)}): its token no longer works.`);
   if (left.length) console.log(`Couldn't reach AgentMingo to disconnect this computer (${named(left)}): disconnect it on the Sessions page.`);
   const backup = `${settingsFile}.agentmingo-backup`;
@@ -7571,6 +8077,8 @@ function status(args) {
   for (const line of countingLines(p, Date.now())) console.log(line);
   console.log(approvalsLine(config));
   console.log(startFromWebLine(p, config));
+  // Marks set back since are forgotten (marksStillTrusted), so uninstall won't undo a trust given again by hand later.
+  marksStillTrusted(p);
   console.log(watchLine(config));
   console.log(hasLeanGit([join(claudeDir(), "CLAUDE.md")]) ? "Lean git rules: on (in your CLAUDE.md)." : "Lean git rules: not in your CLAUDE.md.");
   if (existsSync(p.log)) {
