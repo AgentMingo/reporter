@@ -20,7 +20,9 @@
  * (acme/web-old next to acme/web, say), this computer sends that name to the organization once a day, to ask whether
  * it's the same repository under an earlier name. AgentMingo asks GitHub, and keeps the name only if it is. Until
  * this computer has heard an organization's list (just installed or updated), it asks for it before sending anything
- * about a thread, and drops what it queued for threads outside it.
+ * about a thread, and drops what it queued for threads outside it; from version 24 it notes each such repository, with
+ * the organization its thread had, if any (in ~/.agentmingo/state/unreported.json, for a week), so `status` names it
+ * ("Threads in these folders don't report: …"), and reporter.log says so once a day with the fix.
  *
  * What it sends for those, every request but setting up and downloading an update (below) carrying this computer's
  * connection token (`authorization: Bearer amk_…`) and the script's name and version (user-agent
@@ -148,7 +150,8 @@
  * 20 at most), each with its name or its path in the session's folder, and when Claude asks for its current step (or
  * calls start_task in the task's own folder), the folder's repository and branch. The commands send what they name:
  * `start` and the start_task tool the task's key (and the repository, with --repo), `repos add` and `repos remove` a
- * repository's name, and `repos` asks for the list.
+ * repository's name, and `repos` asks for the list (as `start`, run-start and the start_task tool do, from version 24,
+ * when an older AgentMingo's answer for the task doesn't bring it and the list here hasn't the task's repository).
  * On a computer connected
  * to several organizations, a step report and `start` go first to the organization of the folder's repository, and to
  * the next only if that one doesn't know the step or the task. Install sends the setup command's one-time code, the
@@ -268,6 +271,17 @@
  * EnterWorktree), or gives you a link that opens a new Claude Code session there. Called in a thread already in that
  * folder (one `start` or run-start began there with "Work on <task key>"), it also brings the workflow step the task's
  * run has for the thread now, as current_step does, and marks it given here, so the next message doesn't bring it again.
+ * From version 24 the three keep the organization's list of what reports here as AgentMingo's answer for the task
+ * brings it, and make no folder for a task whose repository (the clone's origin) isn't on it, since a thread there would
+ * report nothing: they say how to connect it in that organization, or add it (`repos add <owner/name> --org <its
+ * name>`), and run-start tells AgentMingo why (repo_not_reporting). `start` prints the task with its organization
+ * ("WEB-12 (acme): Saved carts"), and it and run-start start Claude Code with AGENTMINGO_START_ORG set to that
+ * organization's name here, so the thread's hooks report there from the first, not to another organization whose list
+ * has the repository too: its first hook's lookups too (the task's brief, the workflow step, review results), and the
+ * step the start_task tool hands. A thread keeps the organization it started with, so the start_task tool, or `start`
+ * from Claude's Bash tool, in a thread that reports to another organization than the task's doesn't tell it to move
+ * into the task's folder (it would report nothing there): it says to start a new thread on the task with `start` in a
+ * terminal.
  *
  * Starting threads from AgentMingo (from version 19; macOS only for now; off unless you turn it on here): with it on,
  * "Start on my computer" on a task's page in AgentMingo, from any device you're signed in on, starts a thread on this
@@ -296,7 +310,9 @@
  * directories, and the MCP servers its .mcp.json and settings approve, from the task's branch (which may hold others'
  * changes). AgentMingo hears how it went (opened, started, or why it didn't, in one line with your home folder shown as
  * ~, the repository's name, and the names of the repositories it marked trusted, or that it couldn't mark the clone,
- * so Claude Code may ask), and the thread's first report says
+ * so Claude Code may ask, or from version 24 that it started from this Mac's own copy of the main branch because git
+ * couldn't reach origin without you: that branch's name, what git needed, and the name of the SSH key file ssh named,
+ * like id_ed25519, never a path or the key; below), and the thread's first report says
  * which start it came from, with those names again (run-start puts them in AGENTMINGO_START_TRUSTED, beside
  * AGENTMINGO_START), so they're heard even when that word was lost. Its prompt
  * reaches the hooks as the thread's first message a second after it starts, before that report has gone: that hook
@@ -314,6 +330,40 @@
  * thread that starts this way may still ask, in its Terminal window, what only this Mac can answer (whether to trust the
  * folder, when the state file couldn't be read, or a prompt while answering them from AgentMingo is off). `start-from-web
  * helper --once` runs one of the helper's rounds by hand and prints each step.
+ *
+ * Git with nobody there (from version 24): a start from AgentMingo, and the start_task tool, run git so it never asks
+ * (no password prompt, ssh in batch mode, never left running as a shared connection), with ssh saying what it tried
+ * (-v), which the reporter reads, and leaves out of what the window shows, to tell why a fetch failed. When it failed
+ * for want of a person (a key's passphrase that no agent holds, a key GitHub took none of, a host ssh doesn't know yet,
+ * a password), the task's folder is made from this computer's own copy of the main branch (as of its last fetch, so it
+ * may be behind origin), the window says so with the one-time fix (for a key with a passphrase on a Mac: ssh-add
+ * --apple-use-keychain with that key, then Host *, UseKeychain yes and AddKeysToAgent yes in ~/.ssh/config) and that
+ * until it's done the thread can't push its branch or open its pull request either, and AgentMingo hears it (above), so
+ * the task's page says it too. With no copy of that branch here, when AgentMingo has seen the task's branch on origin
+ * and this computer has no copy of it (one made again from the main branch would be a second branch of that name), for
+ * a host key that changed (ssh refuses it: the host replaced it, or someone is in between), or for any other failure
+ * (no network), the start fails as before. Only whether a key's file is there is looked at, by its usual names in
+ * ~/.ssh, when ssh didn't name one: never the key. With starting threads from AgentMingo on, install and `start` in a
+ * terminal also check, the same way, whether git reaches origin (`git ls-remote --exit-code origin HEAD`, 10 seconds
+ * each at most, all at once) from the clones it knows of the repositories its organizations list (5 at most), and say
+ * the one-time fix for those it doesn't reach without a person: that check sends nothing, and never stops install.
+ *
+ * Which Claude Code runs (from version 24): `start`, run-start, install's `claude mcp add` and uninstall's `claude mcp
+ * remove` run the newest Claude Code on this computer, not the first `claude` on the PATH, which can be an old one an
+ * earlier installer left (a Homebrew cask in /usr/local/bin ahead of the native installer's ~/.local/bin). To tell, it
+ * runs each one it finds with --version (every `claude` on the PATH, and those in ~/.local/bin, /opt/homebrew/bin,
+ * /usr/local/bin and beside the Node.js running it; 5 seconds at most, then 15 more for one that didn't answer), keeps
+ * each version that showed in ~/.agentmingo/state/claude-code.json by its install's real file for a day (read again
+ * once that file changes), and with several, says which it uses and how to remove each other one, as it was installed
+ * (one whose version didn't show is left alone, and asked again next time); with one older than 2.1.232 (the version
+ * whose question whether to trust a folder a start's mark answers), how to update it. Set AGENTMINGO_CLAUDE to a Claude
+ * Code's full path to choose one yourself: then none is run to compare. Nothing about it is sent. Before `start` and
+ * run-start run it, they ask it whether it's logged in (`claude auth status --json`, in the task's folder, 5 seconds at
+ * most; a version from 2.1.98, which has it): when it clearly says it isn't (a new computer, say), it doesn't start,
+ * and says to run claude and /login first; run-start tells AgentMingo why (claude_logged_out), and the task's page says
+ * the same fix. Claude Code answers that from the sign-in it keeps, without checking it with Anthropic, so a sign-in it
+ * keeps that Anthropic no longer takes still starts, and an answer that's late or unclear (or AGENTMINGO_CLAUDE's, whose
+ * version isn't read) starts it as before.
  *
  * When the task's project has a workflow for threads, the session follows it: AgentMingo hands it one
  * step at a time (plan, build, test, open the pull request…) as a note, and Claude reports each step
@@ -435,7 +485,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "23";
+export const VERSION = "24";
 const SCRIPT = fileURLToPath(import.meta.url);
 /**
  * What every request says it is: the script's name and version and, from version 19, this computer's platform (darwin,
@@ -589,6 +639,8 @@ export function paths(home) {
     helperPid: join(home, "state", "start-helper.pid"),
     /** The clones run-start marked trusted in Claude Code, and in which state file ([{ root, repo, at, file }]), so uninstall can set them back. */
     trusted: join(home, "state", "trusted.json"),
+    /** Which Claude Code the reporter runs (chooseClaude): the installs it found, with their versions, kept for a day. */
+    claudeChoice: join(home, "state", "claude-code.json"),
     /** Where launchd writes what the helper prints on stderr (it shouldn't print anything). */
     helperLog: join(home, "helper.log"),
   };
@@ -804,6 +856,22 @@ export function routeFor(config, repo, key) {
   return { conn: null, scope: all.some((c) => !c.known) ? "unknown" : "out" };
 }
 
+/** A connection's key as a start puts it in its thread's environment (AGENTMINGO_START_ORG): an organization's slug, or "default". */
+const START_ORG = /^[A-Za-z0-9_.-]{1,100}$/;
+
+/**
+ * The connection a thread `start` or run-start began reports to (AGENTMINGO_START_ORG in its environment, `env`, from
+ * reporter 24): the one whose organization gave it its task, while this computer is still connected there and its list
+ * has the thread's repository (`repo`), or isn't known yet (its events then wait for it, as any thread's do). Null
+ * otherwise: the thread goes where the lists say, as any other.
+ */
+export function startOrgOf(config, env, repo) {
+  const key = typeof env.AGENTMINGO_START_ORG === "string" && START_ORG.test(env.AGENTMINGO_START_ORG) ? env.AGENTMINGO_START_ORG : null;
+  const conn = key ? connectionByKey(config, key) : null;
+  const scope = conn ? scopeOf(conn, repo) : "out";
+  return scope === "in" || scope === "unknown" ? key : null;
+}
+
 /** The repository ("owner/name") a folder's origin remote names, or null: not a git repository, or one without an origin. */
 function remoteRepo(cwd) {
   return cwd ? repoName(git(cwd, ["config", "--local", "--get", "remote.origin.url"])) : null;
@@ -819,12 +887,14 @@ function threadRepo(p, sid, cwd) {
 
 /**
  * Where a session reports now ({ conn, scope }), from the connection it started with and its folder's repository
- * (`repo`, which it says too).
+ * (`repo`, which it says too). Before its first hook has kept one (the lookups a thread's first hook makes first: its
+ * task, step and review results), the organization a start gave it (AGENTMINGO_START_ORG in `env`, startOrgOf), as
+ * runHook then keeps it, from reporter 24.
  */
-function sessionRoute(p, config, sid, cwd) {
+function sessionRoute(p, config, sid, cwd, env = process.env) {
   const state = sid ? readJson(join(p.state, `${sid}.hook.json`)) || {} : {};
   const repo = threadRepo(p, sid, cwd);
-  return { ...routeFor(config, repo, state.conn || null), repo };
+  return { ...routeFor(config, repo, state.conn || startOrgOf(config, env, repo)), repo };
 }
 
 /** When each organization's list of repositories was last heard (state/scopes.json, so config.json isn't rewritten each time). */
@@ -1402,7 +1472,8 @@ export function fromCursor(raw) {
  * nothing; one whose organization's list isn't known yet queues its event for the sender, which learns
  * the list first, and gets no notes meanwhile. A thread started from AgentMingo (run-start set AGENTMINGO_START in its
  * environment, `env`) says which start it came from on its first SessionStart event, once, with the repositories that
- * start marked trusted in Claude Code (AGENTMINGO_START_TRUSTED, startTrusted).
+ * start marked trusted in Claude Code (AGENTMINGO_START_TRUSTED, startTrusted). One `start` or run-start began
+ * (AGENTMINGO_START_ORG, reporter 24) reports to the organization that gave it its task (startOrgOf).
  */
 export function runHook(home, raw, now = Date.now(), flush = true, env = process.env) {
   if (fromCursor(raw)) return { event: null, context: null };
@@ -1436,6 +1507,10 @@ export function runHook(home, raw, now = Date.now(), flush = true, env = process
       state.repoCwd = state.cwd;
       state.repoAt = now;
     }
+    // A thread a start began reports to the organization that gave it its task, from its first hook: not to another one
+    // whose list has its repository too.
+    const pinned = state.conn ? null : startOrgOf(config, env, state.repo);
+    if (pinned) state.conn = pinned;
     const route = routeFor(config, state.repo, state.conn || null);
     // Its connection was removed in AgentMingo: its threads don't go to another organization.
     if (route.scope === "gone") return { event: null, context: null };
@@ -1784,7 +1859,7 @@ export async function prepareTask(home, raw, deps = {}) {
     if (!mayNameTask(branch)) return;
     const asked = readJson(askedFile(p, sid));
     if (input.hook_event_name === "UserPromptSubmit" && asked && asked.branch === branch) return;
-    const route = sessionRoute(p, config, sid, input.cwd);
+    const route = sessionRoute(p, config, sid, input.cwd, deps.env || process.env);
     if (route.scope !== "in" || backingOff(p, connectionKey(route.conn), Date.now(), true)) return;
     const task = await (deps.ask || askTask)(route.conn, branch, threadRepo(p, sid, input.cwd), lookupHeard(p, connectionKey(route.conn)));
     // Asked again with a message only once the branch changes; not when there was no answer (it asks with the next).
@@ -1961,7 +2036,8 @@ export async function prepareStep(home, raw, deps = {}) {
     const known = readJson(stepFile(p, sid));
     const following = Boolean(known && known.following);
     if (!following && !mayFollow(p, sid, input.cwd, deps.branchOf || branchOf)) return;
-    const route = sessionRoute(p, config, sid, typeof input.cwd === "string" ? input.cwd : null);
+    const env = deps.env || process.env;
+    const route = sessionRoute(p, config, sid, typeof input.cwd === "string" ? input.cwd : null, env);
     if (route.scope !== "in") return;
     const conn = route.conn;
     const key = connectionKey(conn);
@@ -1970,7 +2046,6 @@ export async function prepareStep(home, raw, deps = {}) {
     // sender waits out an outage (the start isn't going anywhere), nor in a check of a release. A pause of lookups doesn't
     // stop it (it reads only the outbox): a slow answer at the thread's own start is what sets one.
     const state = readJson(join(p.state, `${sid}.hook.json`)) || {};
-    const env = deps.env || process.env;
     const opening = input.hook_event_name === "UserPromptSubmit" && !state.prompts && !following && !env.AGENTMINGO_CHECK && !backingOff(p, key, Date.now()) && queuedStart(p, sid).length > 0;
     const sent = opening ? await startSent(p, sid, deps) : false;
     // Lookups paused (one got no answer within its second, this last minute): asked anyway only right after the start
@@ -2648,6 +2723,294 @@ function gitQuiet(cwd, args) {
   return spawnSync("git", ["-C", cwd, ...args], { stdio: "ignore", timeout: GIT_QUIET_TIMEOUT_MS, env: quietGitEnv() }).status === 0;
 }
 
+/**
+ * quietGitEnv, with ssh saying what it tried (-v: on stderr, which the reporter reads, and shows without those lines),
+ * so git that couldn't reach origin says what it needed a person for (gitAccessProblem): GitHub took a key ssh couldn't
+ * use without its passphrase, say. And ssh never becomes a shared connection's master (ControlMaster=no: one already
+ * open is still used), which ~/.ssh/config's ControlPersist would leave in the background holding that stderr, so the
+ * reporter would wait on git for its whole time limit.
+ */
+export function accessGitEnv(env = process.env) {
+  const quiet = quietGitEnv(env);
+  return { ...quiet, GIT_SSH_COMMAND: `${quiet.GIT_SSH_COMMAND} -v -o ControlMaster=no` };
+}
+
+/** What git needed a person for (gitAccessProblem's kinds). AgentMingo keeps a copy, which a test of its own keeps the same. */
+export const START_ACCESS_KINDS = ["ssh_passphrase", "ssh_denied", "ssh_host", "https_password"];
+
+/** ssh's own -v lines, and its lines about the connection itself, which a window leaves out (gitShownLines). */
+const SSH_VERBOSE_LINE = /^(debug\d:|OpenSSH_|Authenticated to |Transferred: |Bytes per second: )/;
+
+/** The usual names of an SSH key in ~/.ssh, in the order ssh tries them. */
+const SSH_KEY_NAMES = ["id_ed25519", "id_ecdsa", "id_rsa"];
+
+/**
+ * Why git couldn't reach origin, when a person could see to it, from what it printed on stderr (with accessGitEnv,
+ * ssh's -v lines among it): { kind: "ssh_passphrase", key } (GitHub took a key, `key` its file as ssh named it, that
+ * ssh couldn't use without its passphrase: nobody typed it, and no agent holds it), { kind: "ssh_denied", key } (GitHub
+ * took no key ssh offered: one with a passphrase ssh couldn't offer, or one GitHub doesn't know; `key`, the first of
+ * the usual ones in `home`'s .ssh whose file is there, null when none is), { kind: "ssh_host" } (ssh doesn't know
+ * origin's host yet, and would ask whether to trust it), { kind: "ssh_host_changed", host } (origin's host sent a key
+ * other than the one ssh knows for it, so ssh refuses: the host replaced its key, or someone is in between; never
+ * worked around, START_ACCESS_KINDS), or { kind: "https_password" } (a password or token git couldn't ask for). Null
+ * for anything else: no network, no such repository, a broken clone. Only whether a key's file is there is looked at,
+ * never the key.
+ */
+export function gitAccessProblem(stderr, home = homedir()) {
+  const text = String(stderr || "");
+  if (/could not read (?:Username|Password) for|terminal prompts disabled|Authentication failed for/i.test(text)) return { kind: "https_password" };
+  if (/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key for \S+ has changed/i.test(text)) {
+    const host = /Host key for (\S+) has changed/.exec(text);
+    return { kind: "ssh_host_changed", host: host && /^[A-Za-z0-9.:[\]-]{1,200}$/.test(host[1]) ? host[1] : null };
+  }
+  if (/Host key verification failed/i.test(text)) return { kind: "ssh_host" };
+  if (!/Permission denied \(publickey/i.test(text)) return null;
+  const accepted = /Server accepts key: ([/~][^\s"']*)/.exec(text);
+  if (accepted) return { kind: "ssh_passphrase", key: accepted[1].startsWith("~/") ? join(home, accepted[1].slice(2)) : accepted[1] };
+  const ssh = join(home, ".ssh");
+  return { kind: "ssh_denied", key: SSH_KEY_NAMES.map((n) => join(ssh, n)).find((f) => existsSync(f)) || null };
+}
+
+/** A key's file name for AgentMingo (a start's localBase): only one right in ~/.ssh with a plain name, else null. */
+function sshKeyName(file) {
+  const name = typeof file === "string" ? basename(file) : "";
+  return dirname(String(file)) === join(homedir(), ".ssh") && /^[A-Za-z0-9._-]{1,64}$/.test(name) ? name : null;
+}
+
+/**
+ * What git couldn't do without a person (gitAccessProblem's `problem`), after "couldn't reach origin" or "can't fetch
+ * acme/web": a key by its path, or for what AgentMingo hears (`sent`), by its file's name only.
+ */
+export function accessNeeds(problem, sent = false) {
+  switch (problem.kind) {
+    case "ssh_passphrase":
+      return `without your SSH key's passphrase (${sent ? basename(String(problem.key)) : tildePath(problem.key)})`;
+    case "ssh_denied":
+      return "with your SSH keys: GitHub took none that git could use without asking for a passphrase";
+    case "ssh_host":
+      return "until ssh knows origin's host (it asks whether to trust it)";
+    case "ssh_host_changed":
+      return `because ssh refused origin's host${problem.host ? ` (${problem.host})` : ""}: it sent a key other than the one ssh knows for it`;
+    default:
+      return "without your password";
+  }
+}
+
+/** Where GitHub lists the fingerprints of its SSH host keys, to check one before trusting it. */
+const GITHUB_SSH_FINGERPRINTS = "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints";
+
+/** The sentence after a start's one-time fix: until it's done, the thread can't push either (git push needs the same). */
+export const UNTIL_FIXED_NO_PUSH = "Until you do, the thread can't push its branch or open its pull request either: git push needs the same access.";
+
+/** A path for a command shown to its person: with ~ for the home folder when it needs no quoting, else quoted whole. */
+function shellPath(file) {
+  const shown = tildePath(file);
+  return /^[A-Za-z0-9_./~@+-]+$/.test(shown) ? shown : shellQuote(file);
+}
+
+/**
+ * The one-time fix for what git needed a person for (gitAccessProblem's `problem`), as lines for a terminal: the exact
+ * commands for this computer (`platform`), with the clone to fetch in once (`clone`) and whether GitHub's command line
+ * is on the PATH (`gh`). A key is named by its file, never shown. With no key to name (ssh_denied with none in ~/.ssh),
+ * making one; for a host key that changed, checking it first, since ssh refuses it rather than asking.
+ */
+export function accessFixLines(problem, { platform = process.platform, clone = null, gh = false } = {}) {
+  const key = shellPath(problem.key || join(homedir(), ".ssh", SSH_KEY_NAMES[0]));
+  const mac = platform === "darwin";
+  const fetchOnce = clone ? `git -C ${shellPath(clone)} fetch origin` : "git fetch origin in your clone";
+  const keychain = mac ? "Terminal, and add UseKeychain yes and AddKeysToAgent yes under Host * in ~/.ssh/config" : "a terminal";
+  if (problem.kind === "ssh_denied" && !problem.key) {
+    return [
+      `The one-time fix: this computer has no SSH key in ~/.ssh. Make one in ${mac ? "Terminal" : "a terminal"} with ssh-keygen -t ed25519 (with a passphrase, then run ${mac ? "ssh-add --apple-use-keychain" : "ssh-add"} ${key} in ${keychain}), and add ${key}.pub to your account at https://github.com/settings/keys.`,
+    ];
+  }
+  if (problem.kind === "ssh_host_changed") {
+    const host = problem.host ? (/^[A-Za-z0-9.-]+$/.test(problem.host) ? problem.host : `'${problem.host}'`) : "<origin's host>";
+    const listed = problem.host === "github.com" ? `GitHub lists its fingerprints at ${GITHUB_SSH_FINGERPRINTS}` : "your Git host lists its fingerprints";
+    return [
+      `The fix, in Terminal, only once you've checked that the host replaced its key (${listed}): ssh-keygen -R ${host}, then ${fetchOnce}, answering yes only if the fingerprint ssh shows is one it lists. If it didn't replace its key, someone may be between you and it: don't.`,
+    ];
+  }
+  switch (problem.kind) {
+    case "ssh_passphrase":
+      return mac
+        ? [
+            "The one-time fix, in Terminal (it asks for the passphrase once, and keeps it in your keychain):",
+            `  ssh-add --apple-use-keychain ${key}`,
+            "then add these lines to ~/.ssh/config, so the key is loaded again after a restart:",
+            "  Host *",
+            "    UseKeychain yes",
+            "    AddKeysToAgent yes",
+          ]
+        : [`The one-time fix, in a terminal: ssh-add ${key}, and AddKeysToAgent yes under Host * in ~/.ssh/config.`];
+    case "ssh_denied":
+      return [
+        `The one-time fix: if ${key} has a passphrase, run ${mac ? "ssh-add --apple-use-keychain" : "ssh-add"} ${key} in ${keychain}. If it hasn't, GitHub doesn't know that key: add ${key}.pub to your account at https://github.com/settings/keys.`,
+      ];
+    case "ssh_host":
+      return [`The one-time fix, in Terminal: ${fetchOnce}, and answer yes when ssh asks whether to trust the host, once its fingerprint matches the one your Git host publishes.`];
+    default:
+      if (gh) return ["The one-time fix, in Terminal: gh auth setup-git (after gh auth login, if GitHub's command line isn't signed in yet), so git signs in through it."];
+      return mac
+        ? [`The one-time fix, in Terminal: git config --global credential.helper osxkeychain, then ${fetchOnce}, signing in once, so your keychain keeps it.`]
+        : [`The one-time fix, in a terminal: set up a credential helper that keeps your password (https://git-scm.com/docs/gitcredentials), then ${fetchOnce}, signing in once.`];
+  }
+}
+
+/** What git printed on stderr as a window shows it: without ssh's own -v lines, each line safe for a terminal. */
+function gitShownLines(stderr) {
+  return String(stderr || "")
+    .split(/\r?\n/)
+    .filter((l) => l.trim() && !SSH_VERBOSE_LINE.test(l))
+    .map(terminalSafe);
+}
+
+/** taskFolder's fetch where its person can answer git (`start` in a terminal): `visible`'s, on screen. { ok, stderr }. */
+function fetchVisible(visible, clone) {
+  return { ok: visible(clone, ["fetch", "origin"]), stderr: "" };
+}
+
+/**
+ * run-start's fetch: git fetch origin in `clone`, never asking anything (accessGitEnv, from `env`), for two minutes at
+ * most, with what git prints shown in its window (but ssh's -v lines) and kept, so a failure says why
+ * (gitAccessProblem). { ok, stderr }.
+ */
+export function fetchShownQuiet(clone, env = process.env) {
+  const ran = spawnSync("git", ["-C", clone, "fetch", "origin"], { stdio: ["ignore", "inherit", "pipe"], encoding: "utf8", timeout: 120_000, env: accessGitEnv(env) });
+  const shown = gitShownLines(ran.stderr);
+  if (shown.length) process.stderr.write(`${shown.join("\n")}\n`);
+  return { ok: ran.status === 0, stderr: String(ran.stderr || "") };
+}
+
+/** The start_task tool's fetch: fetchShownQuiet's, with nothing on screen (its output is its channel to Claude Code), for a minute at most. */
+function fetchQuiet(clone, env = process.env) {
+  const ran = spawnSync("git", ["-C", clone, "fetch", "origin"], { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8", timeout: GIT_QUIET_TIMEOUT_MS, env: accessGitEnv(env) });
+  return { ok: ran.status === 0, stderr: String(ran.stderr || "") };
+}
+
+/**
+ * A start that couldn't fetch, as its error (fetch_failed): with what git needed a person for (`problem`), that and its
+ * one-time fix (in lines, for `fix`: accessFixLines' options), and why it didn't start from this computer's own copy
+ * instead (`instead`, after ", and"). AgentMingo hears its first line only (`sent`), a key named by its file's name,
+ * never its path.
+ */
+function fetchFailed(clone, problem, instead, fix = {}) {
+  if (!problem) return startError(`Couldn't fetch from origin in ${clone}.`, "fetch_failed");
+  const lines = [fetchFailedLine(clone, problem, instead, false), ...accessFixLines(problem, { ...fix, clone })];
+  return startError(lines.join("\n"), "fetch_failed", undefined, fetchFailedLine(clone, problem, instead, true));
+}
+
+/** fetchFailed's first line, for its window, or for AgentMingo (`sent`: a key by its file's name only). */
+function fetchFailedLine(clone, problem, instead, sent) {
+  return `Couldn't fetch from origin in ${clone}: git couldn't reach it ${accessNeeds(problem, sent)}${instead ? `, and ${instead}` : ""}.`;
+}
+
+/**
+ * A start's localBase as AgentMingo takes it ({ branch, access, key? }: the branch it started from, what git needed a
+ * person for, and the SSH key's file name), each part checked, or null.
+ */
+function localBaseSent(localBase) {
+  if (!localBase || typeof localBase !== "object" || !START_ACCESS_KINDS.includes(localBase.access)) return null;
+  if (typeof localBase.branch !== "string" || !/^[A-Za-z0-9._/-]{1,100}$/.test(localBase.branch)) return null;
+  const key = typeof localBase.key === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(localBase.key) ? localBase.key : null;
+  return { branch: localBase.branch, access: localBase.access, ...(key ? { key } : {}) };
+}
+
+/** How long the check of one clone's origin waits for git, and how many clones install and `start` check at most. */
+const ORIGIN_CHECK_TIMEOUT_MS = 10_000;
+const ORIGIN_CHECKS_AT_MOST = 5;
+/**
+ * How long a check past its time still listens before it's let go: what git said while this process was busy (install's
+ * `claude mcp add` blocks it for seconds) waits to be read, and its time can be up before that's been read.
+ */
+const ORIGIN_CHECK_GRACE_MS = 500;
+
+/**
+ * Whether git reaches `clone`'s origin with nobody there to answer it (`git ls-remote --exit-code origin HEAD`, with
+ * accessGitEnv from `env`, `timeoutMs` at most): resolves to null when it does (an empty repository too), else to
+ * gitAccessProblem's answer, null too for what no person could fix (no network, say). Past its time, what git already
+ * said is read for ORIGIN_CHECK_GRACE_MS more (so a check that ended while this process was busy still counts), then
+ * git is stopped and its stderr let go, so an ssh it started can't keep this process waiting.
+ */
+function originProblem(clone, env, timeoutMs) {
+  return new Promise((done) => {
+    const child = spawn("git", ["-C", clone, "ls-remote", "--exit-code", "origin", "HEAD"], { stdio: ["ignore", "ignore", "pipe"], env: accessGitEnv(env) });
+    let stderr = "";
+    let grace = null;
+    const timer = setTimeout(() => {
+      grace = setTimeout(() => {
+        // Ended by itself meanwhile (its stderr still held, by an ssh it left): what it said counts.
+        const code = child.exitCode;
+        child.kill("SIGKILL");
+        child.stderr.destroy();
+        done(originSaid(code, stderr));
+      }, ORIGIN_CHECK_GRACE_MS);
+    }, timeoutMs);
+    child.stderr.on("data", (d) => {
+      if (stderr.length < 65_536) stderr += d;
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      clearTimeout(grace);
+      done(null);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      clearTimeout(grace);
+      done(originSaid(code, stderr));
+    });
+  });
+}
+
+/** originProblem's answer from how git ended (`code`: null when it was stopped) and what it said on stderr. */
+function originSaid(code, stderr) {
+  return code === null || code === 0 || code === 2 ? null : gitAccessProblem(stderr);
+}
+
+/**
+ * The check install and `start` make with starting threads from AgentMingo on (a start there has nobody to type a
+ * passphrase): the clones repos.json knows of the repositories this computer's organizations list and take starts for,
+ * at most 5, all at once (originProblem, 10 seconds each at most). Resolves to [{ repo, clone, problem }] for those git
+ * can't reach without a person. Never rejects.
+ */
+export function originChecks(p, config, env = process.env, timeoutMs = ORIGIN_CHECK_TIMEOUT_MS) {
+  const listed = new Map();
+  for (const c of connectionsOf(config).filter((c) => c.starts !== false)) for (const r of c.repos) listed.set(r.toLowerCase(), r);
+  const known = readJson(p.repos);
+  const clones = Object.entries(isRecord(known) ? known : {})
+    .filter(([name, clone]) => listed.has(name) && typeof clone === "string" && isAbsolute(clone) && existsSync(clone))
+    .slice(0, ORIGIN_CHECKS_AT_MOST);
+  const checks = clones.map(([name, clone]) =>
+    originProblem(clone, env, timeoutMs)
+      .catch(() => null)
+      .then((problem) => ({ repo: listed.get(name), clone, problem })),
+  );
+  return Promise.all(checks).then((all) => all.filter((c) => c.problem));
+}
+
+/**
+ * What install and `start` say of originChecks' answer (`found`): for each kind of access git needed a person for (and
+ * key, or host), the repositories, what their starts do meanwhile (start from this Mac's own copy, and can't push; for
+ * a host key that changed, not start), and the fix (accessFixLines, with `opts`). Nothing when there's none.
+ */
+export function originCheckLines(found, opts = {}) {
+  const groups = new Map();
+  for (const f of found) {
+    const at = JSON.stringify([f.problem.kind, f.problem.key || f.problem.host || null]);
+    groups.set(at, [...(groups.get(at) || []), f]);
+  }
+  return [...groups.values()].flatMap((group) => {
+    const { problem, clone } = group[0];
+    const repos = group.map((f) => f.repo).join(", ");
+    if (!START_ACCESS_KINDS.includes(problem.kind)) return [`Starts from AgentMingo can't fetch ${repos} ${accessNeeds(problem)}, so they don't start until that's fixed.`, ...accessFixLines(problem, { ...opts, clone })];
+    return [
+      `Starts from AgentMingo can't fetch ${repos} ${accessNeeds(problem)}, so they start from this Mac's own copy, which may be behind origin.`,
+      ...accessFixLines(problem, { ...opts, clone }),
+      "Until you do, their threads can't push their branches or open pull requests either: git push needs the same access.",
+    ];
+  });
+}
+
 /** A link that opens a new terminal Claude Code session in `folder` with `prompt` filled in (one Enter sends it). */
 export function claudeCliLink(folder, prompt) {
   return `claude-cli://open?cwd=${encodeURIComponent(folder)}&q=${encodeURIComponent(prompt)}`;
@@ -2666,6 +3029,54 @@ export function switchGuidance(taskKey, folder, branch, dirs = []) {
     `If they say yes, call the EnterWorktree tool with {"path": ${JSON.stringify(folder)}}. From there, AgentMingo ties this thread to ${taskKey}, and the task's brief comes with their next message.`,
     `If they'd rather keep this thread where it is, or EnterWorktree isn't available or doesn't work, give them a new thread in that folder instead: this link opens a new terminal Claude Code session there with the request filled in (they press Enter): ${claudeCliLink(folder, prompt)}`,
     `Or, in a terminal: ${terminal}`,
+  ].join("\n");
+}
+
+/** A connection's key as the words name its organization: its slug, or for one from before they were named, "another organization". */
+function orgSaid(key) {
+  return key === "default" ? "another organization" : key;
+}
+
+/**
+ * The organization a thread reports to, for a start asked for from inside it (the start_task tool, `start` from Claude's
+ * Bash tool): the one its hooks keep (its hook state, by CLAUDE_CODE_SESSION_ID, which Claude Code gives its Bash tool),
+ * else the one they'd keep for a thread in `cwd` (Claude Code starts its MCP server in the folder its session started
+ * in): a start's (AGENTMINGO_START_ORG, startOrgOf), or the first whose list has the folder's repository. Null when it
+ * reports nowhere, or that isn't known yet.
+ */
+function threadOrgOf(p, config, env, cwd, run) {
+  const sid = safeId(env.CLAUDE_CODE_SESSION_ID);
+  const kept = sid ? (readJson(join(p.state, `${sid}.hook.json`)) || {}).conn : null;
+  if (typeof kept === "string" && kept) return kept;
+  const repo = cwd ? repoName(run(cwd, ["config", "--local", "--get", "remote.origin.url"])) : null;
+  const route = routeFor(config, repo, startOrgOf(config, env, repo));
+  return route.scope === "in" ? connectionKey(route.conn) : null;
+}
+
+/**
+ * For a start asked for from inside a thread that isn't in the task's folder (reporter 24): when the thread reports to
+ * another organization (threadOrgOf) than the task's (`t.org`, the connection that answered the start), what to tell it
+ * instead of switchGuidance (otherOrgGuidance); null otherwise. A thread keeps the organization it started with
+ * (routeFor), so one moved into the task's folder would report nothing of it to the task's organization.
+ */
+function otherOrgNext(home, t, env, cwd, run, repo) {
+  const p = paths(home);
+  const here = threadOrgOf(p, readJson(p.config) || {}, env, cwd, run);
+  return here && here !== t.org ? otherOrgGuidance(t.taskKey, t.folder, t.branch, here, t.org, repo) : null;
+}
+
+/**
+ * What a thread is told when the task is `there`'s and the thread reports to `here` (as this computer names its
+ * connections): the folder is ready, but the thread isn't moved there; its person starts a new thread on the task with
+ * `start` in a terminal, which reports to the task's organization from its first hook (AGENTMINGO_START_ORG). `repo`:
+ * the repository the start was asked for, when one was.
+ */
+export function otherOrgGuidance(taskKey, folder, branch, here, there, repo) {
+  const start = `node ~/.agentmingo/reporter.mjs start ${taskKey}${repo ? ` --repo ${shellQuote(repo)}` : ""}`;
+  return [
+    `AgentMingo: ${taskKey}'s folder is ready: ${folder} (on the branch ${branch}).`,
+    `${taskKey} is ${orgSaid(there)}'s task, and this thread reports to ${orgSaid(here)}: a thread keeps the organization it started in, so moved into that folder it wouldn't show on ${taskKey} in AgentMingo. Don't call EnterWorktree for it.`,
+    `Tell the user to start a new thread on ${taskKey} from a terminal instead (it opens Claude Code in that folder, reporting to ${orgSaid(there)}): ${start}`,
   ].join("\n");
 }
 
@@ -2728,6 +3139,9 @@ export function checkedStart(data, key, run = git) {
     branch,
     repository: { fullName: repository.fullName, formerNames, defaultBranch: repository.defaultBranch },
     others,
+    // Whether AgentMingo has seen the task's branch on origin (a pull request from it, or a thread that pushed it): said
+    // alongside reporter 24, and taken as no when it isn't.
+    branchOnOrigin: data.branchOnOrigin === true,
   };
 }
 
@@ -2750,9 +3164,19 @@ export function terminalSafe(value) {
  * for it on this computer when nothing says where it is, with Claude Code's state file found from `deps.env`) on that
  * branch, with the safe .env files (copyEnvFiles), or finds the one made before. It notes the clone (rememberClone),
  * whether it was told of it, runs in it or found it by itself (a clone found by looking, its origin the task's
- * repository, is the task's clone as much as one a thread ran in, and run-start marks either trusted). Prints nothing:
- * `lines` says what it did. Returns { taskKey, title, branch, folder, clone, repository, others, lines }. Its errors
- * say why (`reason`, for run-start).
+ * repository, is the task's clone as much as one a thread ran in, and run-start marks either trusted). Where nobody may
+ * be there to answer git (run-start, the start_task tool: `deps.fetchOrigin`, which never asks), a fetch that failed
+ * for want of a person (gitAccessProblem: a key's passphrase, a password) doesn't stop it with `opts.fromLocal`, from
+ * reporter 24: the folder is made from this computer's own copy of the branch it starts from (`localBase`), when it has
+ * one, and `lines` say so with the one-time fix, and that the thread can't push until it's done. But not when that copy
+ * is the main branch and AgentMingo has seen the task's branch on origin (`branchOnOrigin`): it would be a second branch
+ * of that name. From reporter 24 it keeps the organization's list of what reports here as the start's answer brings it
+ * (startScope; an older AgentMingo's answer has none, and its list is asked for again when it doesn't have the
+ * repository), and makes no folder whose thread wouldn't report: when the clone's repository isn't on that list, it
+ * fails (repo_not_reporting) saying how to connect or add it. Prints nothing: `lines` says what it did, the first with
+ * the organization (`start` prints "WEB-12 (acme): Saved carts"). Returns { taskKey, title, branch, folder, clone,
+ * repository, others, lines, localBase ({ branch, access, key? } or null), org (the key of the connection that answered,
+ * whose organization its thread reports to: AGENTMINGO_START_ORG) }. Its errors say why (`reason`, for run-start).
  */
 export async function taskFolder(home, key, opts = {}, deps = {}) {
   const p = paths(home);
@@ -2764,10 +3188,14 @@ export async function taskFolder(home, key, opts = {}, deps = {}) {
   const cwd = deps.cwd || process.cwd();
   const post = deps.post || postJson;
   const body = { task: key, ...(opts.repo ? { repo: opts.repo } : {}) };
-  // The task is one organization's: this folder's first, then the others this computer reports to.
-  const { res } = opts.connection ? { res: await post(opts.connection, "/api/v1/agent-sessions/start", body, 15_000) } : await postToOwner(connectionsFrom(config, cwd), "/api/v1/agent-sessions/start", body, 15_000, post);
+  // The task is one organization's: this folder's first, then the others this computer reports to. The one that answered
+  // is the one its thread reports to.
+  const asked = opts.connection
+    ? { res: await post(opts.connection, "/api/v1/agent-sessions/start", body, 15_000), conn: opts.connection }
+    : await postToOwner(connectionsFrom(config, cwd), "/api/v1/agent-sessions/start", body, 15_000, post);
+  const { res, conn } = asked;
   if (!res.ok || !res.data) throw startError((res.error && res.error.message) || `AgentMingo didn't answer (HTTP ${res.status}).`, "task_refused");
-  const { key: taskKey, title, branch, repository, others } = checkedStart(res.data, key, run);
+  const { key: taskKey, title, branch, repository, others, branchOnOrigin } = checkedStart(res.data, key, run);
   const repo = repository.fullName;
   let took;
   try {
@@ -2777,15 +3205,30 @@ export async function taskFolder(home, key, opts = {}, deps = {}) {
   }
   const { clone } = took;
   rememberClone(p, clone, run);
+  // Its thread's hooks name its repository as the clone's origin does (remoteRepo): that's the name the list must have.
+  const origin = repoName(run(clone, ["config", "--local", "--get", "remote.origin.url"])) || repo;
+  if ((await startScope(p, conn, origin, res.data, post)) === "out") {
+    const [said, fix] = notReportingSaid(origin, conn);
+    throw startError(`${said}\n${fix}`, "repo_not_reporting", repo, said);
+  }
   const folder = join(dirname(clone), `${basename(clone)}-${taskKey}`);
-  const lines = [`${taskKey}: ${label(terminalSafe(title), 200)}`, ...(took.found ? [took.found] : [])];
+  const org = conn && conn.org ? ` (${terminalSafe(conn.org)})` : "";
+  const lines = [`${taskKey}${org}: ${label(terminalSafe(title), 200)}`, ...(took.found ? [took.found] : [])];
+  let localBase = null;
   try {
     if (existsSync(folder)) {
       const there = cloneOf(folder, run);
       if (!there || there.clone !== clone) throw startError(`${folder} already exists and isn't a worktree of your ${repo} clone. Move it, or use --in.`, "folder_taken");
       lines.push(`Using the folder you already have for it: ${folder}`);
     } else {
-      if (!visible(clone, ["fetch", "origin"])) throw startError(`Couldn't fetch from origin in ${clone}.`, "fetch_failed");
+      const fetched = deps.fetchOrigin ? deps.fetchOrigin(clone, deps.env || process.env) : fetchVisible(visible, clone);
+      const problem = fetched.ok ? null : gitAccessProblem(fetched.stderr);
+      // Only what a person could have given (a passphrase, a password) is worked around: no network, or a host key that
+      // changed (which may be someone in between), still stops it.
+      const offline = problem && START_ACCESS_KINDS.includes(problem.kind) ? problem : null;
+      // The fix as this computer takes it: its platform, and whether GitHub's command line is on its PATH.
+      const fix = problem ? { platform: deps.platform, gh: Boolean(onPath("gh", deps.env)) } : {};
+      if (!fetched.ok && !(opts.fromLocal && offline)) throw fetchFailed(clone, problem, null, fix);
       const local = run(clone, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
       const pushed = !local && run(clone, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]);
       // A repository AgentMingo knows only by name (one you added with `repos add`) starts from the branch the clone was
@@ -2793,17 +3236,88 @@ export async function taskFolder(home, key, opts = {}, deps = {}) {
       if (!local && !pushed && repository.defaultBranch === "HEAD" && !run(clone, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD"])) {
         throw startError(`Your clone of ${repo} doesn't say which branch is origin's main one. Run this in ${clone}, then start again: git remote set-head origin --auto`, "no_main_branch");
       }
+      const main = `origin/${repository.defaultBranch}`;
+      if (offline && !local && !pushed) {
+        // The task's branch is on origin (another computer pushed it since this one last fetched): one made again from the
+        // main branch here would be a second branch of that name, whose push origin refuses, or a force-push overwrites.
+        if (branchOnOrigin) throw fetchFailed(clone, offline, `AgentMingo has seen ${branch} pushed, which this computer has no copy of: one made again from ${main} would be a second ${branch}`, fix);
+        if (!run(clone, ["rev-parse", "--verify", "--quiet", `refs/remotes/${main}`])) throw fetchFailed(clone, offline, `this computer has no copy of ${main} to start from instead`, fix);
+      }
       // A new branch doesn't track the main branch, so pushing it never goes there.
-      const args = local ? [folder, branch] : pushed ? ["--track", "-b", branch, folder, `origin/${branch}`] : ["--no-track", "-b", branch, folder, `origin/${repository.defaultBranch}`];
+      const args = local ? [folder, branch] : pushed ? ["--track", "-b", branch, folder, `origin/${branch}`] : ["--no-track", "-b", branch, folder, main];
       if (!visible(clone, ["worktree", "add", ...args])) throw startError(`Couldn't make ${folder} on ${branch}.`, "worktree_failed");
-      lines.push(`Made ${folder} on ${branch}${local || pushed ? "" : `, from origin/${repository.defaultBranch}`}.`);
+      lines.push(`Made ${folder} on ${branch}${local || pushed ? "" : `, from ${main}`}.`);
+      if (offline) {
+        // Only a key ssh named is told (AgentMingo shows its fix by it), and only by its file's name.
+        const key = offline.kind === "ssh_passphrase" ? sshKeyName(offline.key) : null;
+        localBase = { branch: local || pushed ? branch : mainBranchName(clone, repository.defaultBranch, run), access: offline.kind, ...(key ? { key } : {}) };
+        const copy = local ? `the branch ${branch} as this computer has it` : `this computer's copy of ${pushed ? `origin/${branch}` : main}`;
+        lines.push(`Started from ${copy}, as of its last fetch, so it may be behind origin: git couldn't reach origin ${accessNeeds(offline)}.`);
+        if (!local && !pushed) lines.push(branchMayBeOnOriginSaid(branch));
+        lines.push(...accessFixLines(offline, { ...fix, clone }), UNTIL_FIXED_NO_PUSH);
+      }
       if (!opts.noEnv) lines.push(...envLines(copyEnvFiles(clone, folder, run, Boolean(opts.envAll)), Boolean(opts.envAll)));
     }
   } catch (e) {
     if (e && typeof e === "object" && !e.repo) e.repo = repo;
     throw e;
   }
-  return { taskKey, title, branch, folder, clone, repository, others, lines };
+  return { taskKey, title, branch, folder, clone, repository, others, lines, localBase, org: connectionKey(conn) };
+}
+
+/**
+ * Whether a thread in `repo` (the clone's repository, as its hooks will name it) reports to `conn`'s organization:
+ * "in", "out", or "unknown" when no list could be heard just now (the start then goes on, as before reporter 24). The
+ * list is the one the start's answer brings (`data.repositories` and `data.added`, from AgentMingo 24 on: the same rows
+ * the start's repository comes from); an older AgentMingo's answer has none, so its list is asked for again
+ * (`repositories`, as `repos` asks) when the one this computer has doesn't have the repository: it may be older than the
+ * repository's connection. The list heard is kept (rememberScope), so the thread's hooks route by it from the first.
+ */
+async function startScope(p, conn, repo, data, post) {
+  const key = connectionKey(conn);
+  if (Array.isArray(data.repositories)) {
+    rememberScope(p, key, data);
+  } else {
+    if (scopeOf(connectionByKey(readJson(p.config), key), repo) === "in") return "in";
+    const res = await post(conn, "/api/v1/agent-sessions/repositories", {}, 15_000);
+    if (!res.ok || !res.data || !Array.isArray(res.data.repositories)) return "unknown";
+    rememberScope(p, key, res.data);
+  }
+  // Read again: rememberScope wrote it. A connection removed meanwhile can't be told about.
+  const heard = connectionByKey(readJson(p.config), key);
+  return heard ? scopeOf(heard, repo) : "unknown";
+}
+
+/**
+ * What a start says when the task's repository (`repo`) doesn't report to its organization (`conn`'s) from here, even
+ * by the list it just heard: that it made no folder, and the fix, in two lines. AgentMingo hears the first (no path in
+ * either), and its task's page says the fix in its own words.
+ */
+function notReportingSaid(repo, conn) {
+  const org = conn && conn.org ? conn.org : null;
+  return [
+    `${repo} doesn't report to ${org || "this organization"} from this computer, so no folder was made: a thread in it wouldn't show on AgentMingo.`,
+    `To fix it, connect ${repo} in ${org || "that organization"} (install the GitHub App on it: Settings → Integrations in AgentMingo), or add it for yourself: node ~/.agentmingo/reporter.mjs repos add ${repo}${org ? ` --org ${org}` : ""}. Then start again.`,
+  ];
+}
+
+/**
+ * The main branch's name a start made from this computer's copy tells AgentMingo: the one AgentMingo named, or for
+ * "HEAD" (a repository it knows only by name), the branch the clone's origin/HEAD points at ("HEAD" when it can't say).
+ */
+function mainBranchName(clone, defaultBranch, run) {
+  if (defaultBranch !== "HEAD") return defaultBranch;
+  const at = run(clone, ["rev-parse", "--abbrev-ref", "refs/remotes/origin/HEAD"]);
+  return typeof at === "string" && at.startsWith("origin/") && /^[A-Za-z0-9._/-]{1,100}$/.test(at.slice(7)) ? at.slice(7) : "HEAD";
+}
+
+/**
+ * What a start made from the main branch here, without reaching origin, says of the task's branch: every computer names
+ * it the same, so another may have pushed it since this one last fetched (AgentMingo hadn't seen it, or the start
+ * wouldn't have been made).
+ */
+function branchMayBeOnOriginSaid(branch) {
+  return `${branch} may be on origin already, pushed from another computer since this one last fetched: once git reaches origin, fetch and rebase onto origin/${branch} before pushing, and never force-push it.`;
 }
 
 /** This computer's clones of the task's other repositories (otherClone), as [{ repository, clone }]: the ones it has. */
@@ -2847,9 +3361,15 @@ function launch(cli, args, cwd, env) {
 
 /**
  * `start <task key> [--repo <name>] [--in <folder>] [--no-env | --env-all] [--no-launch]`: a new thread on a task,
- * from any folder. The task's folder (taskFolder), then Claude Code starts there on the task. With --no-launch (a
- * workflow's note asking a thread for another repository's folder), only the folder. Run inside a thread
- * (`inThread`: Claude's own Bash tool), no second Claude: it says how to move the thread there (switchGuidance).
+ * from any folder. The task's folder (taskFolder), then Claude Code starts there on the task: the newest one on this
+ * computer (chooseClaude, from reporter 24), saying which when there are several. With --no-launch (a workflow's note
+ * asking a thread for another repository's folder), only the folder. Run inside a thread (`inThread`: Claude's own
+ * Bash tool), no second Claude: it says how to move the thread there (switchGuidance), or, for a thread that reports to
+ * another organization than the task's, to start a new one there instead (otherOrgNext). In a terminal, with starting
+ * threads from AgentMingo on, it also checks that git reaches the origin of the clones this computer knows without a
+ * person (originChecks), and says the one-time fix for those it doesn't, before Claude Code starts. Claude Code starts
+ * with AGENTMINGO_START_ORG, the task's organization here (reporter 24), so its thread reports there (startOrgOf). One
+ * that says it isn't logged in (claudeLoggedIn, reporter 24) doesn't start: it says to log in first, and returns 1.
  */
 export async function startTask(home, key, opts = {}, deps = {}) {
   // Every .env file, production ones too, goes into a folder threads read: only when its person typed it themselves.
@@ -2868,18 +3388,37 @@ export async function startTask(home, key, opts = {}, deps = {}) {
   // A workflow's plan can take the task into the other repositories: Claude may work in their folders too.
   const dirs = extraDirs(p, t, run);
   if (opts.inThread) {
-    console.log(switchGuidance(taskKey, folder, t.branch, dirs));
+    const cwd = deps.cwd || process.cwd();
+    const other = inFolder(cwd, folder) ? null : otherOrgNext(home, t, deps.env || process.env, cwd, run, opts.repo);
+    console.log(other || switchGuidance(taskKey, folder, t.branch, dirs));
     return 0;
+  }
+  // Its person is at this terminal now, but a start pressed on AgentMingo later has nobody to type a passphrase.
+  const config = readJson(p.config);
+  const terminal = deps.terminal ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  if (terminal && config && config.startFromWeb === true) {
+    const found = await (deps.originChecks || originChecks)(p, config, deps.env || process.env);
+    for (const line of originCheckLines(found, { platform: deps.platform, gh: Boolean(onPath("gh", deps.env)) })) console.log(line);
   }
   const prompt = `Work on ${taskKey}`;
-  const cli = (deps.claude || claudeCli)();
+  const claude = deps.claude ? { cli: deps.claude(), version: null, lines: [] } : claudeFor(p, { env: deps.env, places: deps.claudePlaces });
+  const { cli } = claude;
   if (!cli) {
-    console.log(`Claude Code isn't on this computer's PATH. Start it there yourself: cd ${shellQuote(folder)} && claude ${shellQuote(prompt)}${dirs.map((d) => ` --add-dir ${shellQuote(d)}`).join("")}`);
+    console.log(
+      `Couldn't find Claude Code on this computer (on its PATH, or where its installers put it). Start it there yourself: cd ${shellQuote(folder)} && claude ${shellQuote(prompt)}${dirs.map((d) => ` --add-dir ${shellQuote(d)}`).join("")}`,
+    );
     return 0;
   }
+  for (const line of claude.lines) console.log(line);
+  // Not logged in, it would only say "Please run /login" on the task: said here instead. Not known: it starts, as before.
+  if (claudeLoggedIn(cli, claude.version, folder, deps.env || process.env) === false) {
+    console.log(`Claude Code isn't logged in on this computer. Run claude, type /login, then run this start again: node ~/.agentmingo/reporter.mjs start ${taskKey}`);
+    return 1;
+  }
   if (dirs.length) console.log(`Claude can also work in ${dirs.join(", ")}, for the other repositories the plan may name.`);
-  // The prompt goes first: --add-dir takes every argument after it.
-  return (deps.launch || launch)(cli, [prompt, ...(dirs.length ? ["--add-dir", ...dirs] : [])], folder);
+  // The prompt goes first: --add-dir takes every argument after it. The thread reports to the organization that gave it
+  // its task from its first hook (AGENTMINGO_START_ORG), not to whichever other one lists its repository too.
+  return (deps.launch || launch)(cli, [prompt, ...(dirs.length ? ["--add-dir", ...dirs] : [])], folder, { ...(deps.env || process.env), AGENTMINGO_START_ORG: t.org });
 }
 
 // ---------------------------------------------------------------------------
@@ -2898,6 +3437,12 @@ export const START_TRUSTS_CLONES_VERSION = 21;
  * is (findClone's searchClone), for `start`, the start_task tool and run-start alike.
  */
 export const START_FINDS_CLONES_VERSION = 22;
+/**
+ * The first reporter version whose start, when git couldn't reach origin without a person (a key's passphrase, a
+ * password), starts from this Mac's own copy of the main branch and tells AgentMingo so (localBase), and that runs the
+ * newest Claude Code on the computer (chooseClaude).
+ */
+export const START_LOCAL_BASE_VERSION = 24;
 /**
  * What trusting that clone lets apply, in these words wherever it's said (AgentMingo's pages keep a copy, which a test
  * of its own keeps the same): the repository's own Claude Code settings.
@@ -2923,6 +3468,8 @@ export const REPORTER_START_FAILURES = [
   "claude_missing",
   "turned_off",
   "error",
+  "repo_not_reporting",
+  "claude_logged_out",
 ];
 /** The helper's LaunchAgent: its label, and its file's name in ~/Library/LaunchAgents. */
 export const START_FROM_WEB_LABEL = "com.agentmingo.start-from-web";
@@ -3153,13 +3700,16 @@ function openTerminal(args) {
 /**
  * Tells AgentMingo how a start went (`result`: opened, started, or failed with its reason), with a one-line detail
  * (the home folder shown as ~), the repository's name and, from version 21, the names of the repositories whose clones
- * it marked trusted in Claude Code (`trusted`: names only, never a path), and from version 22 whether Claude Code may
- * ask there whether to trust the clone (`asksTrust`: it couldn't mark it, trustStartedClones). A failure to tell it is
- * logged; the start goes on. With `again`, a request that got no answer is sent once more (the same result twice
+ * it marked trusted in Claude Code (`trusted`: names only, never a path), from version 22 whether Claude Code may
+ * ask there whether to trust the clone (`asksTrust`: it couldn't mark it, trustStartedClones), and from version 24, for
+ * a start made from this Mac's own copy because git couldn't reach origin without a person (`localBase`, localBaseSent:
+ * the branch it started from, what git needed, and the SSH key's file name, never a path or the key). A failure to tell
+ * it is logged; the start goes on. With `again`, a request that got no answer is sent once more (the same result twice
  * changes nothing there).
  */
 async function sendStartResult(p, conn, id, result, post = postJson, timeoutMs = 15_000, again = true) {
   const trusted = Array.isArray(result.trusted) ? result.trusted.filter(repositoryNameOk) : [];
+  const localBase = localBaseSent(result.localBase);
   const body = {
     id,
     outcome: result.outcome,
@@ -3168,6 +3718,7 @@ async function sendStartResult(p, conn, id, result, post = postJson, timeoutMs =
     ...(repositoryNameOk(result.repo) ? { repo: result.repo } : {}),
     ...(trusted.length ? { trusted } : {}),
     ...(result.asksTrust === true ? { asksTrust: true } : {}),
+    ...(localBase ? { localBase } : {}),
   };
   let res = await post(conn, START_FROM_WEB_PATHS.result, body, timeoutMs);
   if (again && res.status === 0) res = await post(conn, START_FROM_WEB_PATHS.result, body, timeoutMs);
@@ -3475,19 +4026,320 @@ function gitShownQuiet(cwd, args) {
   return spawnSync("git", ["-C", cwd, ...args], { stdio: "inherit", timeout: 120_000, env: quietGitEnv() }).status === 0;
 }
 
-/** Claude Code's command line: on the PATH, else where its installers put it. Null when there's none that runs. */
-function findClaude() {
-  const found = claudeCli();
-  if (found) return found;
-  for (const candidate of [join(homedir(), ".local", "bin", "claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]) {
-    try {
-      accessSync(candidate, fsConstants.X_OK);
-      return candidate;
-    } catch {
-      // Not there.
-    }
+// ---------------------------------------------------------------------------
+// Which Claude Code the reporter runs: the newest on this computer, not the first on the PATH (reporter 24)
+// ---------------------------------------------------------------------------
+
+/**
+ * The oldest Claude Code a start from AgentMingo is made for: 2.1.232 is the version whose question whether to trust a
+ * folder run-start's mark answers (it asks before any hook runs, and for a worktree about the clone it was made from,
+ * the clone run-start marks), and starts were built and checked on it and newer ones (2.1.317), never an older one. An
+ * older one still starts; the start's window says how to update it.
+ */
+export const MIN_CLAUDE_VERSION = "2.1.232";
+/**
+ * How long one `claude --version` may take, and the second try's for one that didn't say (the first run of a version an
+ * update just put there, on a busy Mac, can take longer): past both, that install's version didn't show.
+ */
+const CLAUDE_VERSION_TIMEOUT_MS = 5_000;
+const CLAUDE_VERSION_RETRY_MS = 15_000;
+/** How long `claude auth status` may take before a start goes on without its answer (claudeLoggedIn). */
+const CLAUDE_AUTH_TIMEOUT_MS = 5_000;
+/**
+ * The oldest Claude Code seen to answer `claude auth status --json` ("loggedIn", exit code 1 when it's false): 2.1.98
+ * does, as 2.1.318 does. An older one, or one whose version didn't show ($AGENTMINGO_CLAUDE's), isn't asked: what it
+ * would make of those words isn't known.
+ */
+export const CLAUDE_AUTH_STATUS_VERSION = "2.1.98";
+/** How long an install's version stays kept (state/claude-code.json) while its file doesn't change. */
+export const CLAUDE_CHOICE_KEEP_MS = 86_400_000;
+/** Claude Code's npm package, for the commands that remove or update an npm install of it. */
+const CLAUDE_NPM_PACKAGE = "@anthropic-ai/claude-code";
+
+/** The absolute folders on a PATH (`env`'s), in its order: one that isn't absolute ("." or "") is never looked in. */
+function pathDirs(env = process.env) {
+  return String((env && env.PATH) || "")
+    .split(process.platform === "win32" ? ";" : ":")
+    .filter((d) => d && isAbsolute(d));
+}
+
+/** A file this process may run, through links: { real (where it really is), mtimeMs (that file's) }, or null. */
+function runnableFile(file) {
+  try {
+    const real = realpathSync(file);
+    const st = statSync(real);
+    if (!st.isFile()) return null;
+    accessSync(real, fsConstants.X_OK);
+    return { real, mtimeMs: st.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+/** The first `name` on the PATH (`env`'s) that this may run, or null. */
+function onPath(name, env = process.env) {
+  return (
+    pathDirs(env)
+      .map((d) => join(d, name))
+      .find((f) => runnableFile(f)) || null
+  );
+}
+
+/**
+ * Where Claude Code's installers put `claude` besides the PATH: the native installer's ~/.local/bin, Homebrew's
+ * (/opt/homebrew on Apple silicon, /usr/local on Intel), and npm's global folder beside the Node.js running this.
+ */
+export function claudePlaces() {
+  const name = process.platform === "win32" ? "claude.exe" : "claude";
+  return [join(homedir(), ".local", "bin", name), "/opt/homebrew/bin/claude", "/usr/local/bin/claude", join(dirname(process.execPath), name)];
+}
+
+/**
+ * Every Claude Code on this computer the reporter could run: each `claude` on the PATH (`env`'s), in its order, then
+ * those in `places` (claudePlaces), each once by where it really is (a link and the file it leads to are one), and only
+ * files this may run: [{ path (as found), real, mtimeMs (the real file's) }].
+ */
+export function claudeInstalls(env = process.env, places = claudePlaces()) {
+  const names = process.platform === "win32" ? ["claude.exe", "claude.cmd"] : ["claude"];
+  const found = [];
+  for (const path of [...pathDirs(env).flatMap((d) => names.map((n) => join(d, n))), ...places]) {
+    const file = runnableFile(path);
+    if (file && !found.some((f) => f.real === file.real)) found.push({ path, ...file });
+  }
+  return found;
+}
+
+/** The version `<cli> --version` says ("2.1.317 (Claude Code)": "2.1.317"), or null when it says none within `timeoutMs`. */
+export function claudeVersionOf(cli, timeoutMs = CLAUDE_VERSION_TIMEOUT_MS) {
+  const ran = spawnSync(cli, ["--version"], { encoding: "utf8", timeout: timeoutMs, killSignal: "SIGKILL", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 });
+  if (ran.error || ran.status !== 0) return null;
+  for (const line of String(ran.stdout || "").split("\n")) {
+    const m = /^\s*(\d{1,4})\.(\d{1,4})\.(\d{1,6})(?![\d.])/.exec(line);
+    if (m) return `${Number(m[1])}.${Number(m[2])}.${Number(m[3])}`;
   }
   return null;
+}
+
+/**
+ * Whether Claude Code (`cli`, whose version is `version`) is logged in, as `<cli> auth status --json` says it, run in
+ * `cwd` (the folder it's about to start in, whose settings it reads as it would there) with `env` (its CLAUDE_CONFIG_DIR,
+ * an API key…), for `timeoutMs` at most and never asking anything (no input): false only when it clearly says it isn't
+ * ("loggedIn": false, and exit code 1), true when it says it is ("loggedIn": true, exit code 0), and null for anything
+ * else, a start then going on as before: a version older than CLAUDE_AUTH_STATUS_VERSION or none shown (not asked), no
+ * answer in time, an error, output it doesn't recognise. Claude Code answers from what this computer keeps (a sign-in,
+ * an API key, a cloud provider's settings) without checking it with Anthropic, so a sign-in kept that Anthropic no
+ * longer takes ("401 … OAuth access token is invalid") reads as logged in.
+ */
+export function claudeLoggedIn(cli, version, cwd, env = process.env, timeoutMs = CLAUDE_AUTH_TIMEOUT_MS) {
+  if (!version || compareVersions(version, CLAUDE_AUTH_STATUS_VERSION) < 0) return null;
+  const ran = spawnSync(cli, ["auth", "status", "--json"], { cwd, env, encoding: "utf8", timeout: timeoutMs, killSignal: "SIGKILL", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 });
+  if (ran.error || ran.signal) return null;
+  // Its JSON from its first line that opens one: whatever a wrapper printed before it doesn't hide it.
+  const text = String(ran.stdout || "");
+  const at = text.search(/^\{/m);
+  let said = null;
+  try {
+    said = at < 0 ? null : JSON.parse(text.slice(at));
+  } catch {
+    return null;
+  }
+  if (!isRecord(said)) return null;
+  if (said.loggedIn === false && ran.status === 1) return false;
+  if (said.loggedIn === true && ran.status === 0) return true;
+  return null;
+}
+
+/** Versions compared ("2.1.98" before "2.1.317"): negative when `a` is older, 0 when equal; one that didn't show (null) is older than any. */
+export function compareVersions(a, b) {
+  if (!a || !b) return (a ? 1 : 0) - (b ? 1 : 0);
+  const x = a.split(".").map(Number);
+  const y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
+}
+
+/**
+ * Which Claude Code the reporter runs (`start`, run-start, install's `claude mcp add`, uninstall's `claude mcp remove`):
+ * the one $AGENTMINGO_CLAUDE names, when it's set to one this may run (its person's choice: nothing is compared, no
+ * version read); otherwise the newest of claudeInstalls' (`deps.places` instead of claudePlaces in tests), by what
+ * `<it> --version` says (5 seconds at most, then once more for 15 for one that didn't say: one whose version still
+ * didn't show counts below any that did; between equals, the first found), not the first on the PATH, which can be an
+ * old one an earlier installer left (a Homebrew cask in /usr/local/bin ahead of the native installer's ~/.local/bin,
+ * say). Each version that showed is kept in state/claude-code.json by where its file really is, with that file's time,
+ * for a day, so a start doesn't run them all each time, whatever order a shell's PATH has them in; it's read again once
+ * that file changes (an update replaces it) or the day is over. One that didn't show isn't kept: it's asked again next
+ * time, and meanwhile its file's earlier version, when one was kept, still counts. Returns { cli, version, chosen,
+ * others: [{ path, real, version }], fresh (one was read just now), pinned, unpinned (what $AGENTMINGO_CLAUDE named,
+ * when it's none this may run) }, or null when there's none.
+ */
+export function chooseClaude(p, deps = {}) {
+  const env = deps.env || process.env;
+  const named = typeof env.AGENTMINGO_CLAUDE === "string" && env.AGENTMINGO_CLAUDE.trim() ? env.AGENTMINGO_CLAUDE.trim() : null;
+  const pinned = named && isAbsolute(named) ? runnableFile(named) : null;
+  if (pinned) return { cli: named, version: null, chosen: { path: named, ...pinned }, others: [], fresh: false, pinned: true };
+  const installs = claudeInstalls(env, deps.places || claudePlaces());
+  if (!installs.length) return null;
+  const now = (deps.now || Date.now)();
+  const versionOf = deps.versionOf || claudeVersionOf;
+  const keptFile = readJson(p.claudeChoice);
+  const kept = isRecord(keptFile) && isRecord(keptFile.versions) ? keptFile.versions : {};
+  const keep = {};
+  let fresh = false;
+  const found = installs.map((install, at) => {
+    const had = keptVersionOf(kept[install.real], install.mtimeMs);
+    if (had && now >= had.at && now - had.at < CLAUDE_CHOICE_KEEP_MS) {
+      keep[install.real] = had;
+      return { ...install, version: had.version, at };
+    }
+    fresh = true;
+    const version = versionOf(install.path, CLAUDE_VERSION_TIMEOUT_MS) || versionOf(install.path, CLAUDE_VERSION_RETRY_MS);
+    if (version) keep[install.real] = { mtimeMs: install.mtimeMs, version, at: now };
+    else if (had) keep[install.real] = had;
+    return { ...install, version: version || (had ? had.version : null), at };
+  });
+  if (sortedJson(keep) !== sortedJson(kept)) {
+    try {
+      writeJson(p.claudeChoice, { versions: keep }, 0o600);
+    } catch (e) {
+      log(p, `couldn't keep which Claude Code runs in ${tildePath(p.claudeChoice)}: ${(e && e.message) || e}`);
+    }
+  }
+  const [best, ...others] = found.sort((a, b) => compareVersions(b.version, a.version) || a.at - b.at);
+  return {
+    cli: best.path,
+    version: best.version,
+    chosen: best,
+    others: others.map((o) => ({ path: o.path, real: o.real, version: o.version })),
+    fresh,
+    pinned: false,
+    ...(named ? { unpinned: named } : {}),
+  };
+}
+
+/** A record's JSON with its keys in order, so the same entries found in another order (another PATH's) read the same. */
+function sortedJson(record) {
+  return JSON.stringify(Object.keys(record).sort().map((k) => [k, record[k]]));
+}
+
+/** A version chooseClaude kept for an install (`entry`), when it's for the same file (`mtimeMs`): { mtimeMs, version, at }, or null. */
+function keptVersionOf(entry, mtimeMs) {
+  if (!isRecord(entry) || entry.mtimeMs !== mtimeMs || typeof entry.at !== "number") return null;
+  return typeof entry.version === "string" && /^\d+\.\d+\.\d+$/.test(entry.version) ? { mtimeMs, version: entry.version, at: entry.at } : null;
+}
+
+/** The Homebrew whose prefix is `prefix`, as a command: Intel's (/usr/local) through Rosetta on Apple silicon (`arch`). */
+function brewAt(prefix, arch) {
+  return prefix === "/usr/local" && arch === "arm64" ? "arch -x86_64 /usr/local/bin/brew" : shellPath(join(prefix, "bin", "brew"));
+}
+
+/** Where npm puts a global package under its prefix, for an install's real path: <prefix>/lib/node_modules/@anthropic-ai/claude-code/… */
+const CLAUDE_NPM_GLOBAL = new RegExp(`^(.+)/lib/node_modules/${CLAUDE_NPM_PACKAGE}/`);
+
+/**
+ * How an install of Claude Code was made, from where its file really is: { kind: "cask" | "formula", brew, name }
+ * (Homebrew's, with the brew for its prefix), { kind: "local", folder } (the old local install, ~/.claude/local),
+ * { kind: "npm", prefix } (npm's global one, with its prefix when its folder says it), { kind: "native", share } (the
+ * native installer's, with its versions' folder when the file is in it), or { kind: "other" }.
+ */
+function claudeInstallKind(install, arch) {
+  const cask = /^(.+)\/Caskroom\/([A-Za-z0-9@._+-]+)\//.exec(install.real);
+  if (cask) return { kind: "cask", brew: brewAt(cask[1], arch), name: cask[2] };
+  const formula = /^(.+)\/Cellar\/([A-Za-z0-9@._+-]+)\//.exec(install.real);
+  if (formula) return { kind: "formula", brew: brewAt(formula[1], arch), name: formula[2] };
+  const local = join(homedir(), ".claude", "local");
+  if (install.real.startsWith(`${local}/`)) return { kind: "local", folder: local };
+  const npm = CLAUDE_NPM_GLOBAL.exec(install.real);
+  if (npm || install.real.includes(`/node_modules/${CLAUDE_NPM_PACKAGE}/`)) return { kind: "npm", prefix: npm ? npm[1] : null };
+  const share = join(homedir(), ".local", "share", "claude");
+  if (install.real.startsWith(`${share}/`)) return { kind: "native", share };
+  if (install.path === join(homedir(), ".local", "bin", "claude")) return { kind: "native", share: null };
+  return { kind: "other" };
+}
+
+/** npm's global flag for an install's prefix (`--prefix <it>`, so it's that npm's folder, not the one first on the PATH). */
+function npmGlobal(prefix) {
+  return prefix ? `-g --prefix ${shellPath(prefix)}` : "-g";
+}
+
+/**
+ * How to remove an install chooseClaude doesn't use (`chosen` is the one it does): { command } for one an installer
+ * made, else { file } to delete. Never a command that takes the chosen one too: the native installer's folder only
+ * when the chosen one isn't in it, and its link only when the chosen one isn't run through it.
+ */
+function claudeRemoval(install, chosen, arch) {
+  const how = claudeInstallKind(install, arch);
+  if (how.kind === "cask") return { command: `${how.brew} uninstall --cask ${how.name}` };
+  if (how.kind === "formula") return { command: `${how.brew} uninstall ${how.name}` };
+  if (how.kind === "local") return { command: `rm -rf ${shellPath(how.folder)}, and take the claude alias to it out of your shell's profile (~/.zshrc), if it has one` };
+  if (how.kind === "npm") return { command: `npm uninstall ${npmGlobal(how.prefix)} ${CLAUDE_NPM_PACKAGE}` };
+  if (how.kind === "native" && how.share && !String(chosen.real).startsWith(`${how.share}/`)) {
+    const links = [...new Set([install.path, join(homedir(), ".local", "bin", "claude")])].filter((l) => l !== chosen.path).map(shellPath);
+    return { command: `rm -f ${links.join(" ")} && rm -rf ${shellPath(how.share)}` };
+  }
+  return { file: shellPath(install.path) };
+}
+
+/** How to update the install chooseClaude chose: Claude Code's own update for the native installer's, the installer's otherwise, else the native installer. */
+function claudeUpdate(install, arch) {
+  const how = claudeInstallKind(install, arch);
+  if (how.kind === "native") return `${shellPath(install.path)} update`;
+  if (how.kind === "cask") return `${how.brew} upgrade --cask ${how.name}`;
+  if (how.kind === "formula") return `${how.brew} upgrade ${how.name}`;
+  if (how.kind === "npm") return `npm install ${npmGlobal(how.prefix)} ${CLAUDE_NPM_PACKAGE}@latest`;
+  return "curl -fsSL https://claude.ai/install.sh | bash (Claude Code's native installer)";
+}
+
+/**
+ * One install chooseClaude doesn't use, as claudeChoiceLines says it: where, its version, and how to remove it; for one
+ * whose version didn't show, only that it was left alone (it may be the newest, so nothing says to remove it).
+ */
+function ignoredClaudeSaid(other, choice, arch) {
+  if (!other.version) return `The one at ${tildePath(other.path)} didn't say its version (claude --version), so it wasn't compared and is left alone; it's asked again next time.`;
+  const older = compareVersions(other.version, choice.version) < 0;
+  const removal = claudeRemoval(other, choice.chosen, arch);
+  const how = removal.command ? `: ${removal.command}` : `, delete ${removal.file}`;
+  return `${older ? "An older one" : "Another one"} at ${tildePath(other.path)} (${other.version}) is ignored; to remove it${how}.`;
+}
+
+/**
+ * What the reporter says of chooseClaude's `choice` (in a start's window, and at install; logged when a version was
+ * read just now): with several installs, the one it uses and how to remove each other one (as it was installed: with
+ * its Homebrew, its npm prefix, the native installer's folder), or that one whose version didn't show was left alone;
+ * with one older than MIN_CLAUDE_VERSION, how to update it; with $AGENTMINGO_CLAUDE naming none this may run, that it's
+ * ignored. Nothing when there's one, new enough, or $AGENTMINGO_CLAUDE chose. `arch`: this computer's (Intel
+ * Homebrew's commands go through Rosetta on Apple silicon).
+ */
+export function claudeChoiceLines(choice, arch = process.arch) {
+  if (!choice || choice.pinned) return [];
+  const lines = [];
+  if (choice.unpinned) lines.push(`AGENTMINGO_CLAUDE names ${choice.unpinned}, which isn't a program this can run, so it's ignored.`);
+  if (choice.others.length) {
+    const ignored = choice.others.map((o) => ignoredClaudeSaid(o, choice, arch));
+    lines.push(`Using Claude Code ${choice.version ? `${choice.version} ` : ""}(${tildePath(choice.cli)}). ${ignored.join(" ")}`);
+  }
+  if (choice.version && compareVersions(choice.version, MIN_CLAUDE_VERSION) < 0) {
+    lines.push(
+      `Claude Code ${choice.version} is older than ${MIN_CLAUDE_VERSION}, the oldest a start from AgentMingo is made for (its question whether to trust a folder changed then): it starts all the same. To update it: ${claudeUpdate(choice.chosen, arch)}`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * chooseClaude for one of the reporter's commands, never throwing: { cli (null when there's none), version (its, null
+ * when none showed), lines (claudeChoiceLines') }, the lines logged when a version was read just now, so reporter.log
+ * says them once a day at most while every install says its version.
+ */
+function claudeFor(p, deps = {}) {
+  let choice = null;
+  try {
+    choice = chooseClaude(p, deps);
+  } catch (e) {
+    log(p, `couldn't choose which Claude Code to run: ${(e && e.message) || e}`);
+  }
+  const lines = claudeChoiceLines(choice);
+  if (choice && choice.fresh && lines.length) log(p, `Claude Code: ${lines.join(" ")}`);
+  return { cli: choice ? choice.cli : null, version: choice ? choice.version : null, lines };
 }
 
 /** A JSON object (not null, not an array). */
@@ -3910,9 +4762,16 @@ function trustStaysLine(m) {
  * AgentMingo's). Right before that, from version 21, it marks the clone of the task's repository (its main checkout)
  * as trusted in Claude Code (trustStartedClones; not with --no-launch, which starts nothing), the one it knew or, from
  * version 22, the one findClone found by itself alike, and tells AgentMingo when it couldn't, so Claude Code may ask
- * (asksTrust). AGENTMINGO_START tells
- * the thread's first report which start it was, and AGENTMINGO_START_TRUSTED what that start marked trusted.
- * AgentMingo hears how it went. Returns Claude Code's exit code. Never inside Claude Code's Bash tool, and only in a
+ * (asksTrust). From version 24, git's fetch there never asks (fetchShownQuiet), and when it couldn't reach origin
+ * without a person (a key's passphrase, a password), the folder is made from this Mac's own copy of the main branch
+ * (taskFolder's `fromLocal`), the window says so with the one-time fix, and AgentMingo hears it (localBase); and the
+ * Claude Code it runs is the newest on this Mac (chooseClaude), the window saying which when there are several.
+ * AGENTMINGO_START tells
+ * the thread's first report which start it was, AGENTMINGO_START_TRUSTED what that start marked trusted, and from
+ * reporter 24 AGENTMINGO_START_ORG which organization it reports to (the start's). A task whose repository doesn't
+ * report to that organization from here, even by the list its answer brought, starts nothing (repo_not_reporting), and
+ * neither does a Claude Code that says it isn't logged in (claudeLoggedIn: claude_logged_out, before anything is marked
+ * trusted; the window says to run claude and /login, then press Start again). AgentMingo hears how it went. Returns Claude Code's exit code. Never inside Claude Code's Bash tool, and only in a
  * terminal (but with --no-launch).
  */
 export async function runStart(home, id, flags = {}, deps = {}) {
@@ -3965,21 +4824,35 @@ async function runTakenStart(p, id, info, flags, deps, say) {
   const run = deps.git || git;
   let t;
   try {
-    t = await taskFolder(p.home, task, { connection: conn }, { gitVisible: deps.gitVisible || gitShownQuiet, cwd: deps.cwd || homedir(), post, git: run, env: deps.env });
+    // Nobody may be at this Mac to type a passphrase: git never asks, and a fetch that needed one starts from this Mac's copy.
+    const fetchOrigin = deps.fetchOrigin || fetchShownQuiet;
+    t = await taskFolder(p.home, task, { connection: conn, fromLocal: true }, { gitVisible: deps.gitVisible || gitShownQuiet, fetchOrigin, cwd: deps.cwd || homedir(), post, git: run, env: deps.env, platform: deps.platform });
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
     const reason = e && REPORTER_START_FAILURES.includes(e.reason) ? e.reason : e && (e.code === "EPERM" || e.code === "EACCES") ? "folder_blocked" : "error";
     // No clone found: AgentMingo hears where it looked, never what the search found (this window says that).
     await tell({ outcome: "failed", reason, detail: e && typeof e.sent === "string" ? e.sent : message, repo: e && e.repo });
-    say(`AgentMingo: couldn't start ${task}: ${terminalSafe(message)}`);
+    const [first, ...more] = message.split("\n");
+    say(`AgentMingo: couldn't start ${task}: ${terminalSafe(first)}`);
+    for (const line of more) say(terminalSafe(line));
     return 1;
   }
   for (const line of t.lines) say(terminalSafe(line));
+  if (t.localBase) log(p, `start-from-web: start ${id} (${t.taskKey}) made ${tildePath(t.folder)} from this Mac's copy: git couldn't reach origin (${t.localBase.access})`);
   const prompt = `Work on ${t.taskKey}`;
-  const cli = (deps.claude || findClaude)();
+  const claude = deps.claude ? { cli: deps.claude(), version: null, lines: [] } : claudeFor(p, { env: deps.env, places: deps.claudePlaces });
+  const { cli } = claude;
   if (!cli) {
     await tell({ outcome: "failed", reason: "claude_missing", repo: t.repository.fullName });
     say(`AgentMingo: couldn't find Claude Code on this Mac. Check that claude runs in a new Terminal window, then start it yourself: cd ${shellQuote(t.folder)} && claude ${shellQuote(prompt)}`);
+    return 1;
+  }
+  for (const line of claude.lines) say(`AgentMingo: ${terminalSafe(line)}`);
+  // Not logged in, it would only say "Please run /login" (reporter 24): nothing is marked trusted, and the page says the
+  // fix. Not known (an old version, no answer in time): it starts, as before.
+  if (!flags.noLaunch && claudeLoggedIn(cli, claude.version, t.folder, deps.env) === false) {
+    await tell({ outcome: "failed", reason: "claude_logged_out", repo: t.repository.fullName });
+    say("AgentMingo: Claude Code isn't logged in on this Mac. Run claude, type /login, then press Start again.");
     return 1;
   }
   const others = otherClones(p, t, run);
@@ -3989,7 +4862,7 @@ async function runTakenStart(p, id, info, flags, deps, say) {
   const { trusted, asksTrust } = flags.noLaunch ? { trusted: [], asksTrust: false } : trustStartedClones(p, id, t, startedClones(t, run), deps.env, say);
   // Marks of earlier starts set back since are forgotten, so uninstall won't undo a trust given again by hand later.
   if (!flags.noLaunch) marksStillTrusted(p, deps.env);
-  await tell({ outcome: "started", repo: t.repository.fullName, trusted, asksTrust });
+  await tell({ outcome: "started", repo: t.repository.fullName, trusted, asksTrust, localBase: t.localBase });
   if (flags.noLaunch) {
     say(`Folder: ${t.folder}`);
     return 0;
@@ -3997,18 +4870,20 @@ async function runTakenStart(p, id, info, flags, deps, say) {
   if (dirs.length) say(`Claude can also work in ${dirs.join(", ")}, for the other repositories the plan may name.`);
   // As you'd start it yourself: the prompt first (--add-dir takes every argument after it), and nothing else. The
   // thread's first report says which start it was, and what it marked trusted (should the word above have been lost).
-  return (deps.launch || launch)(cli, [prompt, ...(dirs.length ? ["--add-dir", ...dirs] : [])], t.folder, startEnv(deps.env, id, trusted));
+  return (deps.launch || launch)(cli, [prompt, ...(dirs.length ? ["--add-dir", ...dirs] : [])], t.folder, startEnv(deps.env, id, trusted, t.org));
 }
 
 /**
  * Claude Code's environment for start `id`: run-start's own (`env`), with AGENTMINGO_START (the start) and, when it
  * marked clones trusted, AGENTMINGO_START_TRUSTED (`trusted`, the repositories' names, comma-separated; none from
- * anywhere else), which the thread's first SessionStart report carries to AgentMingo.
+ * anywhere else), which the thread's first SessionStart report carries to AgentMingo, and from reporter 24
+ * AGENTMINGO_START_ORG (`org`, the start's connection's key), so the thread reports to that organization from its first
+ * hook (startOrgOf).
  */
-function startEnv(env, id, trusted) {
+function startEnv(env, id, trusted, org) {
   const { AGENTMINGO_START_TRUSTED: _inherited, ...rest } = env;
   const names = trusted.filter(repositoryNameOk);
-  return { ...rest, AGENTMINGO_START: id, ...(names.length ? { AGENTMINGO_START_TRUSTED: names.join(",") } : {}) };
+  return { ...rest, AGENTMINGO_START: id, AGENTMINGO_START_ORG: org, ...(names.length ? { AGENTMINGO_START_TRUSTED: names.join(",") } : {}) };
 }
 
 /** The repositories a start marked trusted, as run-start put them in its thread's environment (startEnv): names only, at most 10. */
@@ -4024,7 +4899,8 @@ function startFromWebSaid() {
     `- When you did, it opens Terminal with one fixed command built on this Mac: Claude Code in the task's folder (made as start makes it, with the same .env files), working on “Work on <task key>”. AgentMingo sends only the task's key, never a command or a path. Claude Code's own permission settings apply, as when you start it yourself. At most ${START_OPENS_PER_HOUR} starts an hour.`,
     `- Right before it starts Claude Code, it marks your main clone of the task's repository (say ~/code/web, not the task's folder ~/code/web-WEB-12) as trusted in Claude Code (projects["<clone>"].hasTrustDialogAccepted in ${tildePath(claudeStateFile())}, nothing else), so Claude Code doesn't stop to ask whether to trust the folder: the clone it already knew (a thread ran in it, or you ran start or the setup command inside it) or the one it found by looking (in the folders Claude Code has opened, or by the repository's name in ~/code and the like), either way only once git says its origin is the task's repository. That clone then stays trusted for every Claude Code session in it and its worktrees, on any branch, until you set the entry back to false, remove it, or uninstall (a later start marks it again; turning starting threads off doesn't undo it). Trusting it lets that repository's own Claude Code settings apply there: ${START_TRUST_LETS_APPLY}.`,
     "- Only you can start threads here, signed in as yourself (not teammates or admins). Someone who gets into your AgentMingo account could start a thread on a task here, and answer its prompts if answering them from AgentMingo is on.",
-    "- Sent: that it's on, whether answering prompts from AgentMingo is on here, and how each start went (opened, started, or why not, in one line with your home folder shown as ~, the repository's name, and which repositories' clones it marked trusted, said again in the thread's first report with the start it came from, or that it couldn't mark the clone, so Claude Code may ask). Never this Mac's name.",
+    "- Sent: that it's on, whether answering prompts from AgentMingo is on here, and how each start went (opened, started, or why not, in one line with your home folder shown as ~, the repository's name, and which repositories' clones it marked trusted, said again in the thread's first report with the start it came from, or that it couldn't mark the clone, so Claude Code may ask, or that it started from this Mac's own copy of the main branch because git couldn't reach origin without you, with that branch, what git needed and the name of the SSH key file ssh named, never a path or the key). Never this Mac's name.",
+    "- Nobody may be at this Mac to type a passphrase: git there never asks, and when it couldn't reach origin without one, the thread starts from this Mac's own copy of the main branch, and its window and the task's page say the one-time fix (until it's done, the thread can't push its branch or open its pull request either).",
     `- To turn it off: node ${SCRIPT} start-from-web off, or on your Account page in AgentMingo.`,
   ];
 }
@@ -4216,9 +5092,13 @@ function mcpText(text, isError = false) {
 
 /**
  * The start_task tool: the task's folder (as `start` makes it, with git quiet: this server's output is its channel to
- * Claude Code), and how to move the thread there, asking its person first. A thread already in that folder (run-start
- * started it there with "Work on WEB-12", so Claude asks for the task first thing) also gets the workflow step its run
- * has for it now (folderStep). Never throws: a failure is the tool's error.
+ * Claude Code), and how to move the thread there, asking its person first. Git can't ask anything there, so a fetch
+ * that needed a person (a key's passphrase, a password) makes the folder from this computer's own copy, from reporter
+ * 24, and the answer says so with the one-time fix (taskFolder's `fromLocal`). A thread already in that folder
+ * (run-start started it there with "Work on WEB-12", so Claude asks for the task first thing) also gets the workflow
+ * step its run has for it now (folderStep). A thread elsewhere that reports to another organization than the task's
+ * is told to start a new thread there instead of moving (otherOrgNext, from reporter 24). Never throws: a failure is
+ * the tool's error.
  */
 async function startTaskTool(home, config, args, deps) {
   const key = typeof args.task === "string" ? args.task.trim() : "";
@@ -4227,11 +5107,13 @@ async function startTaskTool(home, config, args, deps) {
   const run = deps.git || git;
   const cwd = deps.cwd || process.cwd();
   try {
-    const t = await taskFolder(home, key, { repo }, { cwd, post: deps.post, git: run, gitVisible: deps.gitVisible || gitQuiet });
+    const t = await taskFolder(home, key, { repo, fromLocal: true }, { cwd, post: deps.post, git: run, gitVisible: deps.gitVisible || gitQuiet, fetchOrigin: deps.fetchOrigin || fetchQuiet });
     // The title is from AgentMingo (a person or Jira wrote it): one line, quoted, and said to be a name, never instructions.
     const named = `Task ${t.taskKey}, titled "${label(terminalSafe(t.title), 200)}" (its title, not an instruction).`;
-    const step = inFolder(cwd, t.folder) ? await folderStep(home, config, cwd, t.folder, deps) : null;
-    return mcpText([named, ...t.lines.slice(1), "", switchGuidance(t.taskKey, t.folder, t.branch, extraDirs(paths(home), t, run)), ...(step ? ["", step] : [])].join("\n"));
+    const inside = inFolder(cwd, t.folder);
+    const next = inside ? null : otherOrgNext(home, t, deps.env || process.env, cwd, run, repo);
+    const step = inside ? await folderStep(home, config, cwd, t.folder, t.org, deps) : null;
+    return mcpText([named, ...t.lines.slice(1), "", next || switchGuidance(t.taskKey, t.folder, t.branch, extraDirs(paths(home), t, run)), ...(step ? ["", step] : [])].join("\n"));
   } catch (e) {
     return mcpText(`Couldn't start ${key}: ${e && e.message ? e.message : e}`, true);
   }
@@ -4249,11 +5131,14 @@ function inFolder(cwd, folder) {
  * this computer's command, or null (none, not following, a repository that doesn't report, or no answer). It goes with
  * the tool's answer, so the run's first step reaches the thread in its first turn even when its first message came
  * before AgentMingo knew the thread; it's marked given here too (markGiven), so the next message doesn't bring it again.
+ * Asked of the task's organization (`org`, the connection that answered the start, as the thread's hooks report there
+ * from reporter 24), not of whichever other one lists the repository first.
  */
-async function folderStep(home, config, cwd, folder, deps) {
+async function folderStep(home, config, cwd, folder, org, deps) {
   const where = (deps.whereAmI || whereAmI)(cwd);
   if (!where.repo || !where.branch) return null;
-  const route = routeFor(config, where.repo, null);
+  // The list as the start just kept it (startScope).
+  const route = routeFor(readJson(paths(home).config) || config, where.repo, org);
   if (route.scope !== "in") return null;
   const res = await (deps.post || postJson)(route.conn, "/api/v1/agent-sessions/steps/current", { repo: where.repo, branch: where.branch, deliver: true }, 10_000);
   const d = res.ok && res.data ? res.data : null;
@@ -4600,7 +5485,7 @@ export async function prepareFeedback(home, raw, deps = {}) {
     const input = JSON.parse(raw);
     const sid = safeId(input.session_id);
     if (!config || !config.reviews || !sid || input.hook_event_name !== "UserPromptSubmit") return;
-    const route = sessionRoute(p, config, sid, typeof input.cwd === "string" ? input.cwd : null);
+    const route = sessionRoute(p, config, sid, typeof input.cwd === "string" ? input.cwd : null, deps.env || process.env);
     if (route.scope !== "in" || backingOff(p, connectionKey(route.conn), Date.now(), true)) return;
     const waiting = await (deps.ask || askWaiting)(route.conn, sid, lookupHeard(p, connectionKey(route.conn)));
     if (waiting === undefined) return;
@@ -6998,10 +7883,65 @@ function queuedRoute(p, config, event, repos) {
   return routeFor(config, repos.get(event.session), event.conn || null);
 }
 
+/** How often reporter.log says, at most, that one repository's threads' events were dropped because it doesn't report. */
+const UNREPORTED_LOG_EVERY_MS = 24 * 3_600_000;
+/** How long `status` names a repository whose threads' events were dropped (while it still doesn't report). */
+const UNREPORTED_SHOWN_MS = 7 * 86_400_000;
+
+/** Where the repositories whose threads' events were dropped are noted (noteUnreported), for `status`. */
+function unreportedFile(p) {
+  return join(p.state, "unreported.json");
+}
+
+/** Why a repository's threads don't report, by the connection they had (`org`, its key) or none. */
+function notReportingWhy(org) {
+  return org ? `not connected to ${org}, the organization its thread reports to, nor added there by you` : "not connected to any organization this computer reports to";
+}
+
+/**
+ * Notes the repositories whose queued events the sender just dropped because they don't report (`dropped`, by
+ * lowercased name: { repo, org (the key of the connection the thread had, or null), n }) in state/unreported.json, for
+ * `status`, and says so in reporter.log with the organization and the fix, once a day at most for each. Notes older than
+ * UNREPORTED_SHOWN_MS go.
+ */
+function noteUnreported(p, dropped, now) {
+  const kept = readJson(unreportedFile(p));
+  const next = {};
+  for (const [name, e] of Object.entries(isRecord(kept) ? kept : {})) if (isRecord(e) && typeof e.at === "number" && now - e.at < UNREPORTED_SHOWN_MS) next[name] = e;
+  for (const [name, d] of dropped) {
+    const loggedAt = next[name] && typeof next[name].loggedAt === "number" && now - next[name].loggedAt < UNREPORTED_LOG_EVERY_MS ? next[name].loggedAt : null;
+    if (loggedAt === null) {
+      log(
+        p,
+        `dropped ${d.n} queued event(s) of threads in ${d.repo}: it's ${notReportingWhy(d.org)}. To have them report, connect it in its organization (install the GitHub App on it), or: node ${SCRIPT} repos add ${d.repo}${d.org ? ` --org ${d.org}` : " --org <organization>"}`,
+      );
+    }
+    next[name] = { repo: d.repo, org: d.org, at: now, loggedAt: loggedAt ?? now };
+  }
+  writeJson(unreportedFile(p), next);
+}
+
+/**
+ * What `status` says of the repositories whose threads' events were dropped in the last week because they don't report
+ * (noteUnreported), and that still don't by this computer's lists: each with why, then the fix. Nothing when there's none.
+ */
+export function unreportedLines(p, config, now) {
+  const kept = readJson(unreportedFile(p));
+  const still = Object.values(isRecord(kept) ? kept : {}).filter(
+    (e) => isRecord(e) && typeof e.repo === "string" && typeof e.at === "number" && now - e.at < UNREPORTED_SHOWN_MS && routeFor(config, e.repo, typeof e.org === "string" ? e.org : null).scope === "out",
+  );
+  if (!still.length) return [];
+  return [
+    `Threads in these folders don't report: ${still.map((e) => `${e.repo} (${notReportingWhy(typeof e.org === "string" ? e.org : null)})`).join(", ")}.`,
+    `To have one report, connect it in its organization (install the GitHub App on it), or add it for yourself: node ${SCRIPT} repos add <owner/name> --org <organization>.`,
+  ];
+}
+
 /**
  * Sends what's in the outbox, but not to an organization whose last send AgentMingo didn't take until its wait is
  * over (those events stay), and nothing about a thread in a repository no organization lists (those events are
- * dropped). Says whether every send went (`ok`), and how many events wait.
+ * dropped, and the repository noted for `status`: noteUnreported). Says whether every send went (`ok`), and how many
+ * events wait.
  */
 async function drainOutbox(p) {
   // An organization whose send failed in this run waits for the next one, whatever its wait.
@@ -7022,6 +7962,8 @@ async function drainOutbox(p) {
     // One organization's events at a time: the oldest event's, then the next round takes the rest.
     const batch = [];
     const repos = new Map();
+    // The repositories whose events are dropped because they don't report, by lowercased name (noteUnreported).
+    const unreported = new Map();
     let key = null;
     let waiting = 0;
     let outside = 0;
@@ -7036,7 +7978,14 @@ async function drainOutbox(p) {
       if (route.scope === "out" || route.scope === "gone") {
         // Its repository isn't listed (any more), or its organization's connection is gone: not sent anywhere.
         unlinkSync(join(p.outbox, f));
-        outside += 1;
+        const repo = repos.get(event.session);
+        if (route.scope === "out" && repo) {
+          // Named by the organization a thread of it had, if any had one.
+          const was = unreported.get(repo.toLowerCase());
+          unreported.set(repo.toLowerCase(), { repo, org: (was && was.org) || event.conn || null, n: (was ? was.n : 0) + 1 });
+        } else {
+          outside += 1;
+        }
         continue;
       }
       const eventKey = route.conn ? connectionKey(route.conn) : null;
@@ -7047,7 +7996,8 @@ async function drainOutbox(p) {
       key ??= eventKey;
       if (eventKey === key) batch.push({ f, event });
     }
-    if (outside) log(p, `dropped ${outside} queued event(s) of threads whose repository doesn't report to AgentMingo`);
+    if (outside) log(p, `dropped ${outside} queued event(s) of threads whose organization's connection is gone, or that have no repository`);
+    if (unreported.size) noteUnreported(p, unreported, Date.now());
     if (!batch.length) {
       if (waiting || !files.length) return { ok: !failed.size, waiting };
       continue;
@@ -7773,7 +8723,7 @@ function repointSettings(file, home, script, platform, waitS = 0) {
 function repointMcp(home, script) {
   const server = mcpRegistration();
   if (!server || !Array.isArray(server.args) || !server.args.some((a) => typeof a === "string" && isAbsolute(a) && resolve(a) === script)) return "not this copy's";
-  return registerMcp(home) === "added" ? "moved" : "not moved (run install again)";
+  return registerMcp(home, claudeFor(paths(home)).cli) === "added" ? "moved" : "not moved (run install again)";
 }
 
 /**
@@ -8221,10 +9171,15 @@ async function install(args) {
   // Its lists were just heard, and a wait from before (a 403 while the person was a viewer, say) is over.
   if (mine.known) writeJson(p.scopes, { ...scopesHeard(p), [connectionKey(mine)]: Date.now() });
   clearBackoff(p, connectionKey(mine));
+  // With starting threads from AgentMingo on, whether git reaches the known clones' origins with nobody there to type a
+  // passphrase: checked at once, while the rest is set up, and said at the end. It never stops install.
+  const checking = config.startFromWeb === true ? originChecks(p, readJson(p.config)) : null;
   const before = readSettings(settingsFile);
   const [node, run] = runParts(home);
   const backup = writeSettings(settingsFile, before, withReporterHooks(before, hookCommand(node, run, home), hookCommand(node, run, home, "watch"), reporterCommand(node, run, home), permissionWaitOf(config)));
-  const mcp = args["no-mcp"] ? "skipped" : registerMcp(home);
+  // The newest Claude Code here takes `claude mcp add`, not whichever is first on the PATH.
+  const claude = args["no-mcp"] ? null : claudeFor(p);
+  const mcp = claude ? registerMcp(home, claude.cli) : "skipped";
   // The helper that starts threads from AgentMingo: started when the code's box turned it on, started again (as this
   // version writes it) when it was on before, stopped when --no-start-from-web turned it off. None of it fails install.
   let helper = null;
@@ -8304,6 +9259,9 @@ async function install(args) {
   }
   if (mcp === "added") console.log("The agentmingo MCP server is set up in Claude Code (claude mcp add, for your user), with its step tools.");
   else if (mcp !== "skipped") console.log(`To give Claude the step tools, run: ${mcp}`);
+  if (claude) for (const line of claude.lines) console.log(line);
+  const found = checking ? await checking : [];
+  if ((readJson(p.config) || {}).startFromWeb === true) for (const line of originCheckLines(found, { gh: Boolean(onPath("gh")) })) console.log(line);
   console.log(
     `To remove it all: node ${SCRIPT} uninstall (it takes out the hooks, the permission rules and the MCP server, sets back to untrusted in Claude Code the clones starts from AgentMingo marked trusted, and leaves ${home} for you to delete).`,
   );
@@ -8348,12 +9306,6 @@ export async function withConnection(existing, mine, post) {
   return { list, replaced, dropped };
 }
 
-/** The `claude` command line, to register the MCP server with (null when it isn't on this computer's PATH). */
-function claudeCli() {
-  const found = spawnSync(process.platform === "win32" ? "where" : "which", ["claude"], { encoding: "utf8", timeout: 5_000 });
-  return found.status === 0 && found.stdout.trim() ? found.stdout.trim().split("\n")[0] : null;
-}
-
 /** How long a `claude mcp …` command may take (Claude Code's command line is slow to start), then it's stopped. */
 const CLAUDE_CLI_TIMEOUT_MS = 30_000;
 
@@ -8377,14 +9329,14 @@ function mcpReAddArgs(server) {
 }
 
 /**
- * Registers (or re-registers) the MCP server with Claude Code for this user. Returns "added", or the
- * command to run by hand when `claude` isn't here or said no. When it said no after the earlier registration was
- * taken out, that one goes back, so Claude Code keeps an MCP server that works.
+ * Registers (or re-registers) the MCP server with Claude Code for this user, through `cli` (chooseClaude's, from
+ * reporter 24: the newest Claude Code here). Returns "added", or the command to run by hand when there's none or it
+ * said no. When it said no after the earlier registration was taken out, that one goes back, so Claude Code keeps an
+ * MCP server that works.
  */
-function registerMcp(home) {
+function registerMcp(home, cli) {
   const args = mcpAddArgs(home);
   const manual = `claude ${args.map((a) => (/\s/.test(a) ? shellQuote(a) : a)).join(" ")}`;
-  const cli = claudeCli();
   if (!cli) return manual;
   const earlier = mcpRegistration();
   const removed = spawnSync(cli, ["mcp", "remove", "-s", "user", "agentmingo"], { stdio: "ignore", timeout: CLAUDE_CLI_TIMEOUT_MS });
@@ -8425,7 +9377,7 @@ async function uninstall(args) {
   const helper = (config && config.startFromWeb === true) || (plist !== null && plist.includes(START_HELPER_MARKER)) ? unloadStartHelper(p) : null;
   // Once the helper can't start another: the clones its starts marked trusted in Claude Code, set back.
   const untrusted = untrustStartedClones(p);
-  const cli = args["no-mcp"] ? null : claudeCli();
+  const cli = args["no-mcp"] ? null : claudeFor(p).cli;
   if (cli) spawnSync(cli, ["mcp", "remove", "-s", "user", "agentmingo"], { stdio: "ignore", timeout: CLAUDE_CLI_TIMEOUT_MS });
   // The hooks are out first, so nothing more is queued while AgentMingo is asked.
   const conns = connectionsOf(config);
@@ -8482,7 +9434,9 @@ function reposConnection(all, org, repo, removing) {
 /**
  * `repos [add [owner/name] | remove <owner/name>] [--org <organization>]`: which repositories' threads report, and
  * adding a repository of yours (this folder's, or one named) so your threads in it report too, or taking it out.
- * AgentMingo keeps the list (the Sessions page shows it, and removes from it), and this computer's copy follows.
+ * AgentMingo keeps the list (the Sessions page shows it, and removes from it), and this computer's copy follows. An
+ * organization that doesn't answer the list's ask is shown with the list this computer last heard, saying so and when
+ * (from version 24).
  */
 export async function reposCommand(home, mode, name, opts = {}, deps = {}) {
   const p = paths(home);
@@ -8514,13 +9468,24 @@ export async function reposCommand(home, mode, name, opts = {}, deps = {}) {
     console.log(said || `Done: ${repo}.`);
     return 0;
   }
-  // The list: AgentMingo's, when it answers (and this computer's copy follows), else what this computer last heard.
+  // The list: AgentMingo's, when it answers (and this computer's copy follows), else what this computer last heard, said
+  // so with when it heard it.
+  const unanswered = new Map();
   for (const conn of all) {
     const res = await post(conn, "/api/v1/agent-sessions/repositories", {}, 10_000);
-    if (res.ok && res.data) rememberScope(p, connectionKey(conn), res.data);
+    if (res.ok && res.data && Array.isArray(res.data.repositories)) rememberScope(p, connectionKey(conn), res.data);
+    else unanswered.set(connectionKey(conn), (res.error && res.error.message) || `HTTP ${res.status}`);
   }
+  const heard = scopesHeard(p);
   console.log("Threads report only from these repositories (each to its organization); threads in any other folder send nothing about themselves:");
-  for (const c of connectionsOf(readJson(p.config))) console.log(`  ${connectionKey(c)}: ${scopeLine(c)}`);
+  for (const c of connectionsOf(readJson(p.config))) {
+    const key = connectionKey(c);
+    const why = unanswered.get(key);
+    const at = typeof heard[key] === "number" ? `as of ${when(heard[key])}` : "as last heard";
+    const didnt = why === undefined ? "" : `${key} didn't answer just now: ${label(terminalSafe(why), 120)}`;
+    const stale = !didnt ? "" : c.known ? ` (${at}; ${didnt})` : `; ${didnt}`;
+    console.log(`  ${key}: ${scopeLine(c)}${stale}`);
+  }
   console.log(`To add a repository of yours: node ${SCRIPT} repos add (in its folder), or repos add owner/name. To take one out: repos remove owner/name, or on the Sessions page.`);
   return 0;
 }
@@ -8579,6 +9544,7 @@ function status(args) {
   console.log("Threads report only from these repositories (each to its organization); threads in any other folder send nothing about themselves:");
   for (const c of connectionsOf(config)) console.log(`  ${connectionKey(c)}: ${scopeLine(c)}`);
   console.log(`To add a repository of yours: node ${SCRIPT} repos add (in its folder).`);
+  for (const line of unreportedLines(p, config, Date.now())) console.log(line);
   console.log(`Waiting to send: ${outboxFiles(p).length} event(s).`);
   for (const [key, e] of Object.entries(readJson(p.backoff) || {})) {
     if (e && e.until > Date.now()) console.log(`AgentMingo ${e.limited ? "asked this computer to wait" : "didn't answer"} (${key}, ${e.failures} time(s) in a row): sending again after ${when(e.until)}.`);
@@ -8694,7 +9660,8 @@ export async function main(argv) {
     if (fromCursor(raw)) return 0;
     const home = resolve(values.home || defaultHome());
     // Each waits on AgentMingo (a second at most), so they ask at the same time. (A thread's first message that came
-    // with its start first waits up to OPENING_WAIT_MS for the start to be sent: prepareStep.)
+    // with its start first waits up to OPENING_WAIT_MS for the start to be sent: prepareStep.) Before runHook keeps the
+    // thread's organization, a thread a start began asks the start's (sessionRoute).
     await Promise.all([prepareTask(home, raw), prepareStep(home, raw), prepareFeedback(home, raw)]);
     // In a check of a release (problemRunning), a hook starts nothing in the background: the check runs the sender.
     const { context, hookEventName } = runHook(home, raw, Date.now(), !process.env.AGENTMINGO_CHECK);
