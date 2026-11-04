@@ -1,5 +1,20 @@
 # AgentMingo reporter
 
+AgentMingo puts your team's coding-agent threads in one place, from ticket to pull request: every thread live on the web with its branch, pull request and tokens, prompts you can answer from your browser or phone, and AI code reviewer comments and CI results sent back to the thread that wrote the code.
+This script is the part that runs on your computer, in your coding agent's hooks. It works with Claude Code today; Codex and more are next.
+
+**Getting it.** [Sign up at agentmingo.com](https://agentmingo.com/signin?new=1) with GitHub, Google or email (free during the open beta), install the AgentMingo GitHub App on the repositories you choose, then run the one setup command the Sessions page gives you. That command downloads this file to `~/.agentmingo` and adds it to Claude Code's hooks. Its one-time code works once, within 15 minutes. You need macOS or Linux, Node.js 18.3 or newer, and Claude Code. [Install](#install) has the details, including how to read the file before it runs, and [What install changes on your computer](#what-install-changes-on-your-computer) lists every change it makes.
+
+**Why it's open source.** It runs on your machine, inside your coding agent's hooks, so you should be able to read exactly what it does and what it sends before you run it. It's one file of plain JavaScript with no dependencies, under Apache-2.0, and [What it sends](#what-it-sends) quotes its own header. The SHA-256 of every release from version 11 on is in [CHANGELOG.md](CHANGELOG.md), so you can check that the copy on your machine is a published one:
+
+```sh
+shasum -a 256 ~/.agentmingo/reporter.mjs   # macOS (on Linux: sha256sum)
+```
+
+It updates itself from agentmingo.com over HTTPS, and updates aren't signed, so what runs later can differ from what you read today. `node ~/.agentmingo/reporter.mjs auto-update off` stops that (see [Updates and the kill switch](#updates-and-the-kill-switch) and [Check that your copy is a published one](#check-that-your-copy-is-a-published-one)). AgentMingo's server is closed source.
+
+---
+
 This is the script that connects the coding-agent threads on your computer to [AgentMingo](https://agentmingo.com).
 It is the same file agentmingo.com serves at <https://agentmingo.com/reporter.mjs>, published here so you can read exactly what it does before you run it.
 
