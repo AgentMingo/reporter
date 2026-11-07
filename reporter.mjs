@@ -485,7 +485,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-export const VERSION = "24";
+export const VERSION = "25";
 const SCRIPT = fileURLToPath(import.meta.url);
 /**
  * What every request says it is: the script's name and version and, from version 19, this computer's platform (darwin,
@@ -528,6 +528,18 @@ export const WATCH_LONG_MS = 8 * 3_600_000;
  * thread ended, or a newer watcher took over: any of those ends its wait within this long.
  */
 export const WATCH_CHECK_MS = 5_000;
+/**
+ * A watcher's pause that took this much longer than it should have, by the clock, means the computer slept through it
+ * (version 25): its next ask is the first after a wake, when the network may not be back yet (askAgain).
+ */
+export const WOKE_GAP_MS = 60_000;
+/**
+ * A watcher's last ask, or its first after the computer woke, that gets no answer (a network failure: "fetch failed" is
+ * what a Mac's network says right after a wake) is asked again this often, for up to this long, within its hook's
+ * timeout, before the watcher gives up on it (version 25). Its other asks aren't: the next one comes at its pace.
+ */
+export const ASK_AGAIN_EVERY_MS = 15_000;
+export const ASK_AGAIN_FOR_MS = 3 * 60_000;
 
 /**
  * Keep listening (reporter 18): a long watcher with replies on whose time is up, while AgentMingo's latest answer says to
@@ -1195,6 +1207,15 @@ export function hookToEvent(input, state, options) {
   let busyMs;
   switch (input.hook_event_name) {
     case "SessionStart":
+      // Claude Code compacting the conversation fires this too (from 2.1.317 on its own, about an hour after a turn
+      // ends, while the thread waits for its person), and that starts nothing: the thread goes on where it was, waiting.
+      // So from version 25 nothing is reported for it (reported as a start, AgentMingo took the thread as starting
+      // again: its wait ended, a reply sent from its page was canceled, and its watcher wasn't kept listening), and the
+      // thread's state here stays as it was (lastKind, so its watcher goes on). The hook still gives Claude the rules,
+      // the brief and the step again (addNotes). The compaction's own request (the summary) is counted like any other:
+      // the sender reads the transcript up to its end when it sends (enrich, updateUsage: cumulative counts), so it
+      // reaches AgentMingo with the next event's usage.
+      if (input.source === "compact") return null;
       kind = "start";
       break;
     case "UserPromptSubmit":
@@ -1619,8 +1640,11 @@ function addNotes(p, config, state, input, sid, event, notes, home, now) {
       notes.push(task.note);
       state.taskBriefed = task.key;
     }
-    // The workflow step to do now, once per step (again after /clear or compaction).
-    const step = takeStep(p, sid, input.hook_event_name === "SessionStart" && input.source !== "resume");
+    // The workflow step to do now, once per step (again after /clear or compaction). A compaction reports no event
+    // (hookToEvent), so nothing would tell AgentMingo a step was given then: it gives again only a step given before
+    // (told with that giving), and leaves one not yet given to its watcher or the next message, which tell.
+    const compaction = input.hook_event_name === "SessionStart" && input.source === "compact";
+    const step = takeStep(p, sid, input.hook_event_name === "SessionStart" && input.source !== "resume", compaction);
     if (step) {
       notes.push(withCommand(step.note, home));
       stepGiven = step.id;
@@ -1931,12 +1955,13 @@ function saveStep(p, sid, s, now) {
 
 /**
  * The step to pass to Claude with this message, if it hasn't been (or `again`: the conversation was
- * cleared or compacted, so it's passed on again). Marks it given.
+ * cleared or compacted, so it's passed on again; `givenOnly`: only one passed on before). Marks it given.
  */
-function takeStep(p, sid, again) {
+function takeStep(p, sid, again, givenOnly = false) {
   const file = stepFile(p, sid);
   const s = readJson(file);
   if (!s || !s.following) return null;
+  if (givenOnly && s.given !== s.id) return null;
   if (again) s.given = null;
   if (!s.id || !s.note || s.given === s.id) {
     if (again) writeJson(file, s);
@@ -5514,8 +5539,9 @@ export async function askFeedback(config, session, deliver, deliverStep, more = 
     });
     const body = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, data: body && body.data, retryAfterMs: retryAfterOf(res) };
-  } catch {
-    return { ok: false, status: 0, data: null };
+  } catch (e) {
+    // No answer (offline, a timeout): status 0, with what went wrong for the watcher's log.
+    return { ok: false, status: 0, data: null, error: e && e.message ? e.message : String(e) };
   }
 }
 
@@ -5749,46 +5775,97 @@ export function noteKeepListening(p, sid, input) {
  * next Stop as that short turn's.
  */
 function rearmToKeepListening(w, keep, cap) {
-  if (keep !== true || !Number.isFinite(cap) || cap < KEEP_LISTENING_MIN_CAP_MS) return false;
-  if (!repliesOn(readJson(w.p.config))) return false;
+  if (keep !== true || !Number.isFinite(cap) || cap < KEEP_LISTENING_MIN_CAP_MS) return 0;
+  if (!repliesOn(readJson(w.p.config))) return 0;
   const file = keepFile(w.p, w.sid);
   const kept = readJson(file) || {};
   const rearms = Number.isInteger(kept.rearms) && kept.rearms > 0 ? kept.rearms : 0;
-  if (rearms >= KEEP_LISTENING_REARMS) return false;
+  if (rearms >= KEEP_LISTENING_REARMS) return 0;
   writeJson(file, { rearms: rearms + 1, next: true, at: w.now() });
-  return true;
+  return rearms + 1;
 }
 
 /**
- * Whether a watcher's wait is over, from this computer's state alone (no request): its person typed in the thread, or it
- * ended, since the watcher started (runHook counts both, so a later event, the turn's Stop say, can't hide them), or a
- * newer watcher took the thread over (the lock names another), or its connection was refused since (another process
- * heard a 403). `w`: the watcher, as runWatch makes it.
+ * Why a watcher's wait is over, from this computer's state alone (no request), or null while it isn't: its person typed
+ * in the thread, or it ended, since the watcher started (runHook counts both, so a later event, the turn's Stop say,
+ * can't hide them), a newer watcher took the thread over (the lock names another), or its connection was refused since
+ * (another process heard a 403). `w`: the watcher, as runWatch makes it.
  */
-function watchOver(w) {
+function watchOverWhy(w) {
   const hook = readJson(join(w.p.state, `${w.sid}.hook.json`)) || {};
-  if ((hook.prompts || 0) > w.base.prompts || (hook.ends || 0) > w.base.ends) return true;
-  if ((hook.lastKind === "prompt" || hook.lastKind === "end") && hook.lastSentAt > w.started) return true;
-  if (forbiddenNow(w.p, w.key, w.now())) return true;
-  return (readJson(w.lock) || {}).id !== w.lockId;
+  if ((hook.prompts || 0) > w.base.prompts || (hook.lastKind === "prompt" && hook.lastSentAt > w.started)) return "its person typed in the thread";
+  if ((hook.ends || 0) > w.base.ends || (hook.lastKind === "end" && hook.lastSentAt > w.started)) return "the thread ended";
+  if (forbiddenNow(w.p, w.key, w.now())) return "AgentMingo refused this computer (403)";
+  return (readJson(w.lock) || {}).id !== w.lockId ? "a newer watcher took the thread over" : null;
+}
+
+/** Whether a watcher's wait is over (watchOverWhy), noting why on it for the log (`w.why`). */
+function watchOver(w) {
+  const why = watchOverWhy(w);
+  if (why) w.why = why;
+  return Boolean(why);
 }
 
 /**
  * Waits `ms` in steps of `w.checkMs`, looking at watchOver after each. Whether the wait is over (the watcher stops). Its
  * steps are awake time: on a computer that slept through `until` (the watcher's time is up then, by the clock), it stops
  * pausing at the next step, so the watcher makes its last ask (and keeps the thread listening) before Claude Code's
- * timeout can stop it, not a pause's worth of minutes after it woke.
+ * timeout can stop it, not a pause's worth of minutes after it woke. A step the clock says took WOKE_GAP_MS longer than
+ * it should have was slept through: noted on the watcher (`w.woke`) for its next ask (askAgain).
  */
 async function pauseWatch(w, ms, until = Infinity) {
   let left = ms;
   while (left > 0) {
     const step = Math.min(left, w.checkMs);
+    const before = w.now();
     await w.wait(step);
+    if (w.now() - before >= step + WOKE_GAP_MS) w.woke = true;
     left -= step;
     if (watchOver(w)) return true;
     if (w.now() >= until) break;
   }
   return watchOver(w);
+}
+
+/** The watcher named for the log: the thread's first 8 characters, as the other lines name threads. */
+function watcherSaid(w) {
+  return `the watcher of thread ${w.sid.slice(0, 8)}`;
+}
+
+/**
+ * How long a watcher listens, for its start line: long (replies on, or following a workflow) or short, the time it
+ * really has (`limitMs`: WATCH_LONG_MS or WATCH_FOR_MS, or less where its hook's timeout cuts it, `capped`), in hours
+ * when whole, else minutes. Said from the limit itself, so a long watch on a 20-minute hook reads 19 minutes, not 8 hours.
+ */
+function listensSaid(long, limitMs, capped) {
+  const minutes = Math.round(limitMs / 60_000);
+  const time = minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60} hours` : `${minutes} minutes`;
+  return `${long ? "long" : "short"}: up to ${time}${capped ? " (its hook's timeout)" : ""}`;
+}
+
+/**
+ * Asks again for a watcher (`w`) whose ask got no answer (`failed`, status 0: a network failure), with the same `more`,
+ * every ASK_AGAIN_EVERY_MS for up to ASK_AGAIN_FOR_MS and never past `until` (a minute before its hook's timeout), until
+ * one is answered (whatever it says) or its wait is over (watchOver). The last answer it got, which the caller takes as
+ * it takes any: the 401 and 403 rules, and the backoff on one still unanswered, are its. One line in the log either way.
+ */
+async function askAgain(w, more, until, failed) {
+  const from = w.now();
+  let res = failed;
+  let tries = 0;
+  while (w.now() - from < ASK_AGAIN_FOR_MS && w.now() + ASK_AGAIN_EVERY_MS <= until) {
+    await w.wait(ASK_AGAIN_EVERY_MS);
+    if (watchOver(w)) return res;
+    tries += 1;
+    res = await watchAsk(w, undefined, undefined, more);
+    if (res.status !== 0) {
+      log(w.p, `${watcherSaid(w)} reached AgentMingo on try ${tries + 1}, ${Math.round((w.now() - from) / 1000)} s after a network failure`);
+      return res;
+    }
+  }
+  const went = tries ? `in ${tries + 1} tries over ${Math.round((w.now() - from) / 1000)} s` : "with no time left before its hook's timeout to ask again";
+  log(w.p, `${watcherSaid(w)} got no answer from AgentMingo ${went} (${res.error || "no answer"}); it gave up on this ask`);
+  return res;
 }
 
 /**
@@ -5889,7 +5966,8 @@ export async function runWatch(home, raw, deps = {}) {
   // before it, it stops by itself.
   const timeoutS = "timeoutS" in deps ? deps.timeoutS : sessionWatchTimeoutS(config, startHook);
   const cap = timeoutS ? timeoutS * 1000 - 60_000 : Infinity;
-  const limitFor = (long) => Math.min(long ? (deps.longMs ?? WATCH_LONG_MS) : (deps.forMs ?? WATCH_FOR_MS), cap);
+  const wants = (long) => (long ? (deps.longMs ?? WATCH_LONG_MS) : (deps.forMs ?? WATCH_FOR_MS));
+  const limitFor = (long) => Math.min(wants(long), cap);
   let long = following || replies;
   // Only a thread that reports waits for anything, and not while its connection is refused (a 403: hours, not minutes).
   const route = sessionRoute(p, config, sid, typeof input.cwd === "string" ? input.cwd : null);
@@ -5923,7 +6001,13 @@ export async function runWatch(home, raw, deps = {}) {
     // Tokens AgentMingo answered 401: never used again.
     refused: new Set(),
     goesOn: "this thread keeps listening",
+    // Why it stopped, for the log's one line as it ends (watchOver notes its reasons; the others are set as it returns).
+    why: null,
+    // Whether its last pause was slept through (pauseWatch): its next ask is the first after a wake.
+    woke: false,
   };
+  // One line as it starts and one as it stops (below), so what a thread's watcher did can be read back from the log.
+  log(p, `${watcherSaid(w)} started: listening ${listensSaid(long, limitFor(long), cap < wants(long))}, until ${new Date(started + limitFor(long)).toISOString()}`);
   try {
     // Give the reply's report a moment to arrive, so AgentMingo knows the branch.
     if (await pauseWatch(w, Math.min(every(0), 15_000), started + limitFor(long))) return null;
@@ -5941,7 +6025,10 @@ export async function runWatch(home, raw, deps = {}) {
       // time is up it ends as a watch that heard nothing (not kept listening: nothing could say to). Uninstalled since: it
       // ends now.
       if (!w.conn && !reconnected(w)) {
-        if (last || uninstalled(p)) return null;
+        if (last || uninstalled(p)) {
+          w.why = uninstalled(p) ? "uninstalled" : "its time is up, with its connection removed and no new one";
+          return null;
+        }
         if (await pauseWatch(w, pause, started + limitFor(long))) return null;
         continue;
       }
@@ -5952,10 +6039,21 @@ export async function runWatch(home, raw, deps = {}) {
         continue;
       }
       // With replies on, it says when it asks next: until then the thread's page offers a reply.
-      const res = await watchAsk(w, undefined, undefined, replies ? { listen: Math.ceil(pause / 1000) } : undefined);
+      const more = replies ? { listen: Math.ceil(pause / 1000) } : undefined;
+      const woke = w.woke;
+      w.woke = false;
+      let res = await watchAsk(w, undefined, undefined, more);
+      // Its last ask, or its first after the computer woke, got no answer (a network failure: the network isn't back yet
+      // after a wake): asked again for a while (askAgain) before the backoff takes it as AgentMingo not answering, since
+      // an ask lost here is what the thread's page shows as nothing listening, and on the last one what keeps the thread
+      // listening or not.
+      if (res.status === 0 && (last || woke)) res = await askAgain(w, more, started + cap, res);
       noteSend(p, key, res, now());
       // Refused (suspended, or made a viewer): nothing to wait for.
-      if (res.status === 403) return null;
+      if (res.status === 403) {
+        w.why = "AgentMingo refused this computer (403)";
+        return null;
+      }
       // Disconnected: it goes on through the new connection, or waits for one (above).
       if (res.status === 401) continue;
       // Typed in while it asked: what came goes with that message, not a wake.
@@ -5966,15 +6064,24 @@ export async function runWatch(home, raw, deps = {}) {
       // it was: no, unless an earlier one said yes. So its last ask lost (asleep as its time ran out, back online a moment
       // later) still goes by the time left's answer, minutes old.
       if (data && typeof data.keepListening === "boolean") keep = data.keepListening;
+      // What its last ask was told about keeping the thread listening (and AgentMingo's reason, from 25's answers), or
+      // that it wasn't answered: the one ask whose answer decides what happens next, in the log.
+      if (last) log(p, `${watcherSaid(w)} asked its last: ${lastAskSaid(res, keep)}`);
       // Following a workflow now (a person started one on its page): a decision there may come hours later.
       if (data && data.following) long = true;
       // A reply its person sent from the thread's page: the thread wakes with it, and with what was waiting.
       const reply = replies && data ? replyOf(data.reply) : null;
       if (reply) {
         const note = await takeReply(w, reply, data);
-        if (note) return note;
+        if (note) {
+          w.why = "it took a reply to wake the thread with";
+          return note;
+        }
       }
-      if (data && !data.pullRequest && !data.following && !replies) return null;
+      if (data && !data.pullRequest && !data.following && !replies) {
+        w.why = "nothing to wait for: the branch has no pull request";
+        return null;
+      }
       // A workflow step it hasn't been given (a person decided, or reviews cleared): wake it with that.
       const step = data && data.following && data.step && typeof data.step.id === "string" ? data.step : null;
       const known = readJson(stepFile(p, sid)) || {};
@@ -5982,12 +6089,19 @@ export async function runWatch(home, raw, deps = {}) {
         const told = await watchAsk(w, undefined, step.id);
         // Disconnected just now: the new connection's answer brings the step again.
         if (told.status === 401) continue;
-        if (!told.ok) return null;
+        if (!told.ok) {
+          w.why = `AgentMingo didn't take the step as given (${told.status ? `HTTP ${told.status}` : told.error || "no answer"})`;
+          return null;
+        }
         saveStep(p, sid, data, now());
         writeJson(stepFile(p, sid), { ...readJson(stepFile(p, sid)), given: step.id });
+        w.why = "it took a workflow step to wake the thread with";
         return withCommand(step.note, home);
       }
-      if (data && !data.following && !config.reviews && !replies) return null;
+      if (data && !data.following && !config.reviews && !replies) {
+        w.why = "nothing to wait for";
+        return null;
+      }
       if (config.reviews && data && Array.isArray(data.pending) && data.pending.length) {
         // AgentMingo says whether to wake: review fixes within their rounds, or a checklist step.
         const wake = typeof data.wake === "boolean" ? data.wake : data.rounds < data.maxRounds;
@@ -5999,13 +6113,16 @@ export async function runWatch(home, raw, deps = {}) {
             if (!told.ok) {
               releaseTold(p, sid, [...new Set(ids.map(toldName))]);
               if (told.status === 401) continue;
+              w.why = `AgentMingo didn't take the review results as told (${told.status ? `HTTP ${told.status}` : told.error || "no answer"})`;
               return null;
             }
             rmSync(feedbackFile(p, sid), { force: true });
+            w.why = "it took review results to wake the thread with";
             return data.note;
           }
         } else if (!long) {
           // The automatic rounds are used up: they wait for the person's next message (or, listening on, their reply).
+          w.why = "the pull request's automatic review rounds are used up";
           return null;
         }
       }
@@ -6016,15 +6133,31 @@ export async function runWatch(home, raw, deps = {}) {
     // It listened its whole long watch with replies on: AgentMingo's latest word may say to keep the thread listening,
     // with one short turn whose Stop starts a fresh watcher. Not when its person typed or it ended just now, nor when its
     // connection was removed on its last asks (a reply taken then, say) with no new one yet.
-    if (long && replies && w.conn && !watchOver(w) && rearmToKeepListening(w, keep, cap)) return KEEP_LISTENING_NOTE;
+    const rearm = long && replies && w.conn && !watchOver(w) ? rearmToKeepListening(w, keep, cap) : 0;
+    if (rearm) {
+      w.why = `its time is up: it keeps the thread listening (short turn ${rearm} of ${KEEP_LISTENING_REARMS} in this wait)`;
+      return KEEP_LISTENING_NOTE;
+    }
+    if (!w.why) w.why = "its time is up";
     return null;
+  } catch (e) {
+    w.why = `it failed: ${e && e.message ? e.message : e}`;
+    throw e;
   } finally {
+    log(p, `${watcherSaid(w)} stopped: ${w.why || "for a reason it didn't note"}`);
     try {
       if ((readJson(lock) || {}).id === lockId) unlinkSync(lock);
     } catch {
       // Already gone.
     }
   }
+}
+
+/** What a watcher's last ask was told, for the log: keep listening yes or no, with AgentMingo's reason when it gives one; or that it got no answer. */
+function lastAskSaid(res, keep) {
+  if (!res.ok || !res.data) return `no answer (${res.status ? `HTTP ${res.status}` : res.error || "a network failure"}); it goes by the time left's answer: keep listening ${keep ? "yes" : "no"}`;
+  const said = typeof res.data.keepListening === "boolean" ? (res.data.keepListening ? "yes" : "no") : "not said (an AgentMingo before 18)";
+  return `keep listening ${said}${typeof res.data.keepListeningWhy === "string" ? ` (${res.data.keepListeningWhy})` : ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -9696,8 +9829,13 @@ export async function main(argv) {
   if (command === "watch") {
     const raw = readStdin();
     if (fromCursor(raw)) return 0;
-    // Exit code 2 wakes Claude; what's on stderr is what it reads.
-    const note = await runWatch(resolve(values.home || defaultHome()), raw).catch(() => null);
+    // Exit code 2 wakes Claude; what's on stderr is what it reads. A watcher that failed says so in the log (and
+    // nothing to Claude), rather than vanish without a trace.
+    const home = resolve(values.home || defaultHome());
+    const note = await runWatch(home, raw).catch((e) => {
+      log(paths(home), `the watcher failed: ${e && e.message ? e.message : e}`);
+      return null;
+    });
     if (!note) return 0;
     process.stderr.write(note);
     return 2;
